@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Layout Card — standalone demo</title>
+<style>
+  :root {
+    color-scheme: light;
+    --primary-text-color: #212121;
+    --secondary-text-color: #727272;
+    --card-background-color: #fff;
+    --secondary-background-color: #f5f5f5;
+    --divider-color: rgba(0,0,0,.12);
+    --accent-color: #03a9f4;
+    --error-color: #db4437;
+    --state-light-active-color: #fdd835;
+    --ha-card-border-radius: 12px;
+  }
+  body.dark {
+    color-scheme: dark;
+    --primary-text-color: #e1e1e1;
+    --secondary-text-color: #9b9b9b;
+    --card-background-color: #1c1c1c;
+    --secondary-background-color: #282828;
+    --divider-color: rgba(255,255,255,.12);
+    background: #111;
+  }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: #f2f4f7;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--primary-text-color);
+  }
+  body.dark { background: #111; }
+  .wrap { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+  @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  p.sub { margin: 0 0 16px; color: var(--secondary-text-color); font-size: 13px; }
+  .panel { background: var(--card-background-color); border-radius: 12px; padding: 16px; box-shadow: 0 2px 6px rgba(0,0,0,.12); }
+  .toolbar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .toolbar button { font: inherit; font-size: 13px; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color); cursor: pointer; }
+  pre#yaml { background: var(--secondary-background-color); border-radius: 8px; padding: 12px; font-size: 11px; max-height: 260px; overflow: auto; margin: 16px 0 0; }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <button id="theme">Toggle dark</button>
+  <button id="kitchen">Toggle kitchen light</button>
+  <button id="motion">Trigger landing motion</button>
+</div>
+<div class="wrap">
+  <div>
+    <h1>Card</h1>
+    <p class="sub">This is the card exactly as Home Assistant renders it.</p>
+    <div id="card-host"></div>
+    <pre id="yaml"></pre>
+  </div>
+  <div>
+    <h1>Visual editor</h1>
+    <p class="sub">Edits here feed straight back into the card, same as in the HA dashboard editor.</p>
+    <div class="panel"><div id="editor-host"></div></div>
+  </div>
+</div>
+
+<script>
+/* ---- minimal stubs for the Home Assistant frontend elements we use ---- */
+const ICONS = {
+  "mdi:lightbulb": "M12 2a7 7 0 0 0-7 7c0 2.4 1.2 4.5 3 5.7V17a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2.3c1.8-1.2 3-3.3 3-5.7a7 7 0 0 0-7-7m-3 18h6v1a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1z",
+  "mdi:thermostat": "M15 13V5a3 3 0 0 0-6 0v8a5 5 0 1 0 6 0m-3-9a1 1 0 0 1 1 1v3h-2V5a1 1 0 0 1 1-1",
+  "mdi:motion-sensor": "M12 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4m-2 15v-6H8v-4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v4h-2v6z",
+  "mdi:television": "M21 3H3a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h5v2h8v-2h5a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2m0 13H3V5h18z",
+  "mdi:window-shutter": "M3 4h18v2H3zm0 3h18v13H3zm2 2v2h14V9zm0 4v2h14v-2zm0 4v2h14v-2z",
+  "mdi:lock": "M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5m0 2a3 3 0 0 1 3 3v3H9V6a3 3 0 0 1 3-3",
+  "mdi:washing-machine": "M6 2h12a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2m2 3a1 1 0 1 0 0 2 1 1 0 0 0 0-2m4 3a6 6 0 1 0 0 12 6 6 0 0 0 0-12m0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8",
+  "mdi:floor-plan": "M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1m1 2v6h5V5zm7 0v4h7V5zm7 6h-4v8h4zm-6 0H5v8h8z",
+  "mdi:layers-triple-outline": "M12 2 2 8l10 6 10-6zm0 2.3 6.2 3.7L12 11.7 5.8 8zM2 12l10 6 10-6-1.9-1.1L12 15.7 3.9 10.9zm0 4 10 6 10-6-1.9-1.1L12 19.7 3.9 14.9z",
+  "mdi:fit-to-screen-outline": "M3 3h6v2H5v4H3zm12 0h6v6h-2V5h-4zM3 15h2v4h4v2H3zm16 0h2v6h-6v-2h4z",
+  "mdi:plus": "M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z",
+  "mdi:arrow-up": "M12 4 5 11h4v9h6v-9h4z",
+  "mdi:arrow-down": "M12 20 5 13h4V4h6v9h4z",
+  "mdi:delete-outline": "M9 3h6l1 1h4v2H4V4h4zm-3 5h12l-1 13H7z",
+  "mdi:content-copy": "M16 1H4a2 2 0 0 0-2 2v14h2V3h12zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2",
+  "mdi:map-marker-plus-outline": "M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7m1 4v2h2v2h-2v2h-2v-2H9V8h2V6z",
+  "mdi:close": "M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z",
+  "mdi:image-broken-variant": "M21 5v6h-2l-2-2-2 2-3-3-3 3-2-2-2 2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2m0 8v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6l2-2 2 2 3-3 3 3 2-2 2 2z",
+  "mdi:help-circle-outline": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m0 15a1.2 1.2 0 1 1 0 2.4 1.2 1.2 0 0 1 0-2.4m1-2h-2v-1c0-2 3-2 3-4a2 2 0 1 0-4 0H8a4 4 0 1 1 8 0c0 2.5-3 2.8-3 5",
+  "mdi:toggle-switch-variant": "M7 6h10a6 6 0 0 1 0 12H7A6 6 0 0 1 7 6m10 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6",
+  "mdi:eye": "M12 5c-5 0-9 4.5-10 7 1 2.5 5 7 10 7s9-4.5 10-7c-1-2.5-5-7-10-7m0 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8",
+  "mdi:account": "M12 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8m0 10c4.4 0 8 1.8 8 4v2H4v-2c0-2.2 3.6-4 8-4",
+  "mdi:home": "M12 3 2 12h3v8h6v-6h2v6h6v-8h3z",
+  "mdi:home-roof": "M12 3 2 12h3v8h14v-8h3zm0 3.5L17 11v7H7v-7z",
+  "mdi:stairs-up": "M3 20h5v-4h4v-4h4V8h5V4h-7v4h-4v4H6v4H3z",
+  "mdi:fan": "M12 11a2 2 0 1 1 0 4 2 2 0 0 1 0-4m0-9c3 0 5 1.6 5 3.5S15 9 13 9.6V11a4 4 0 0 0-2 0V3.2c.3-.1.6-.2 1-.2zM2 13c0-3 1.6-5 3.5-5S9 10 9.6 12H11a4 4 0 0 0 0 2H3.2c-.1-.3-.2-.6-.2-1zm11 9c-3 0-5-1.6-5-3.5s2-3.5 4-4.1V13a4 4 0 0 0 2 0v7.8c-.3.1-.6.2-1 .2z",
+};
+class HaIcon extends HTMLElement {
+  static get observedAttributes() { return ["icon"]; }
+  connectedCallback() { this._draw(); }
+  attributeChangedCallback() { this._draw(); }
+  set icon(v) { this.setAttribute("icon", v); }
+  _draw() {
+    const size = getComputedStyle(this).getPropertyValue("--mdc-icon-size").trim() || "24px";
+    const path = ICONS[this.getAttribute("icon")] || ICONS["mdi:help-circle-outline"];
+    this.style.display = "inline-flex";
+    this.style.width = size; this.style.height = size;
+    this.innerHTML = `<svg viewBox="0 0 24 24" width="100%" height="100%" fill="currentColor"><path d="${path}"/></svg>`;
+  }
+}
+customElements.define("ha-icon", HaIcon);
+
+class HaCard extends HTMLElement {
+  connectedCallback() {
+    this.style.display = "block";
+    this.style.background = "var(--card-background-color)";
+    this.style.borderRadius = "var(--ha-card-border-radius, 12px)";
+    this.style.boxShadow = "0 2px 6px rgba(0,0,0,.14)";
+    this.style.color = "var(--primary-text-color)";
+  }
+}
+customElements.define("ha-card", HaCard);
+
+/* ---- a fake hass object ---- */
+const mkState = (entity_id, state, attributes = {}) => ({
+  entity_id, state, attributes, last_changed: new Date().toISOString(),
+});
+const hass = {
+  themes: { darkMode: false },
+  states: {
+    "light.living_room": mkState("light.living_room", "on", { friendly_name: "Living Room", icon: "mdi:lightbulb" }),
+    "light.kitchen": mkState("light.kitchen", "off", { friendly_name: "Kitchen Spots", icon: "mdi:lightbulb" }),
+    "light.study": mkState("light.study", "off", { friendly_name: "Study Lamp", icon: "mdi:lightbulb" }),
+    "sensor.living_temperature": mkState("sensor.living_temperature", "21.4", { friendly_name: "Living Temp", unit_of_measurement: "°C", icon: "mdi:thermostat" }),
+    "sensor.kitchen_temperature": mkState("sensor.kitchen_temperature", "23.1", { friendly_name: "Kitchen Temp", unit_of_measurement: "°C", icon: "mdi:thermostat" }),
+    "binary_sensor.landing_motion": mkState("binary_sensor.landing_motion", "off", { friendly_name: "Landing Motion", icon: "mdi:motion-sensor" }),
+    "media_player.tv": mkState("media_player.tv", "playing", { friendly_name: "Living Room TV", icon: "mdi:television" }),
+    "cover.bedroom_blind": mkState("cover.bedroom_blind", "open", { friendly_name: "Bedroom Blind", icon: "mdi:window-shutter" }),
+    "lock.front_door": mkState("lock.front_door", "locked", { friendly_name: "Front Door", icon: "mdi:lock" }),
+    "switch.washing_machine": mkState("switch.washing_machine", "on", { friendly_name: "Washing Machine", icon: "mdi:washing-machine" }),
+    "light.main_bedroom": mkState("light.main_bedroom", "off", { friendly_name: "Main Bedroom", icon: "mdi:lightbulb" }),
+    "fan.loft": mkState("fan.loft", "on", { friendly_name: "Loft Fan", icon: "mdi:fan" }),
+  },
+  formatEntityState: (s) => (s.attributes.unit_of_measurement ? `${s.state} ${s.attributes.unit_of_measurement}` : s.state),
+  callService: (domain, service, data) => {
+    const id = data && data.entity_id;
+    const s = hass.states[id];
+    if (s) { s.state = s.state === "on" ? "off" : "on"; push(); }
+    console.log("callService", domain, service, data);
+  },
+};
+
+let CONFIG = {
+  type: "custom:home-layout-card",
+  title: "Our House",
+  selector: "tabs",
+  marker_size: 34,
+  floors: [
+    {
+      id: "loft", name: "Loft", level: 2, icon: "mdi:home-roof", image: "loft.svg", image_dark: "loft-dark.svg",
+      markers: [
+        { entity: "fan.loft", x: 20, y: 40 },
+        { entity: "light.main_bedroom", x: 80, y: 30, style: "badge" },
+      ],
+    },
+    {
+      id: "first", name: "First Floor", level: 1, icon: "mdi:stairs-up", image: "first-floor.svg", image_dark: "first-floor-dark.svg",
+      markers: [
+        { entity: "light.main_bedroom", x: 25, y: 30 },
+        { entity: "cover.bedroom_blind", x: 80, y: 27 },
+        { entity: "binary_sensor.landing_motion", x: 55, y: 50, style: "dot" },
+      ],
+    },
+    {
+      id: "ground", name: "Ground Floor", level: 0, icon: "mdi:home", image: "ground-floor.svg", image_dark: "ground-floor-dark.svg",
+      inline_svg: true,
+      svg_bindings: [
+        { selector: "#living", entity: "light.living_room" },
+        { selector: "#kitchen", entity: "light.kitchen" },
+        { selector: "#study", entity: "light.study" },
+      ],
+      markers: [
+        { entity: "light.living_room", x: 17, y: 22 },
+        { entity: "media_player.tv", x: 40, y: 22 },
+        { entity: "sensor.living_temperature", x: 28, y: 45, style: "badge" },
+        { entity: "light.kitchen", x: 70, y: 16 },
+        { entity: "sensor.kitchen_temperature", x: 87, y: 32, style: "badge" },
+        { entity: "lock.front_door", x: 55, y: 88 },
+        { entity: "switch.washing_machine", x: 89, y: 85 },
+        { entity: "light.study", x: 25, y: 76 },
+      ],
+    },
+  ],
+};
+
+const cardHost = document.getElementById("card-host");
+const editorHost = document.getElementById("editor-host");
+let card, editor;
+
+function build() {
+  cardHost.innerHTML = "";
+  editorHost.innerHTML = "";
+  card = document.createElement("home-layout-card");
+  card.setConfig(CONFIG);
+  card.hass = snapshot();
+  cardHost.appendChild(card);
+
+  editor = document.createElement("home-layout-card-editor");
+  editor.hass = snapshot();
+  editor.setConfig(CONFIG);
+  editor.addEventListener("config-changed", (ev) => {
+    CONFIG = ev.detail.config;
+    card.setConfig(CONFIG);
+    card.hass = snapshot();
+    dumpYaml();
+  });
+  editorHost.appendChild(editor);
+  dumpYaml();
+}
+// Home Assistant hands the card a fresh hass object on every update — mirror that
+// here so the card's change detection behaves the way it does in a real dashboard.
+function snapshot() {
+  return { ...hass, themes: { ...hass.themes }, states: { ...hass.states } };
+}
+function push() { if (card) card.hass = snapshot(); }
+function dumpYaml() { document.getElementById("yaml").textContent = JSON.stringify(CONFIG, null, 2); }
+
+document.getElementById("theme").addEventListener("click", () => {
+  document.body.classList.toggle("dark");
+  hass.themes.darkMode = document.body.classList.contains("dark");
+  push();
+});
+document.getElementById("kitchen").addEventListener("click", () => {
+  const s = hass.states["light.kitchen"];
+  s.state = s.state === "on" ? "off" : "on";
+  push();
+});
+document.getElementById("motion").addEventListener("click", () => {
+  const s = hass.states["binary_sensor.landing_motion"];
+  s.state = s.state === "on" ? "off" : "on";
+  push();
+});
+</script>
+<script src="../dist/home-layout-card.js"></script>
+<script>build();</script>
+</body>
+</html>

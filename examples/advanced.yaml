@@ -1,0 +1,93 @@
+# Everything the card can do, on one storey.
+type: custom:home-layout-card
+title: Our House
+selector: tabs          # tabs | buttons | dropdown | none
+marker_size: 34
+aspect_ratio: 16:9
+color_on: var(--state-light-active-color, #fdd835)
+color_off: var(--secondary-text-color)
+show_names: false
+show_states: true
+allow_zoom: true        # scroll / pinch to zoom, drag to pan, double-click to reset
+stack_view: true        # show the "all storeys" button
+stack_default: false    # open the card in the stacked view
+remember_floor: true    # reopen on the storey last looked at
+default_floor: ground
+
+floors:
+  - id: ground
+    name: Ground Floor
+    level: 0                                   # 0 = ground, negative = basement
+    icon: mdi:home
+    image: /local/floorplans/ground-floor.svg
+    image_dark: /local/floorplans/ground-floor-dark.svg
+    aspect_ratio: 16:9                         # overrides the card-wide ratio
+    inline_svg: true                           # required for svg_bindings
+
+    # Tint shapes inside the SVG according to entity state.
+    # The selector is any CSS selector (an "#id" is the usual choice).
+    svg_bindings:
+      - selector: "#living"
+        entity: light.living_room
+        color_on: "#ffca28"
+        opacity_on: 0.45
+      - selector: "#kitchen"
+        entity: light.kitchen
+      - selector: "#hall"
+        entity: binary_sensor.hall_motion
+        color_on: "#42a5f5"
+        opacity_on: 0.3
+
+    markers:
+      # 1. plain icon puck — the default
+      - entity: light.living_room
+        x: 17
+        y: 22
+
+      # 2. icon + state, for anything with a number
+      - entity: sensor.living_temperature
+        x: 28
+        y: 45
+        style: badge
+
+      # 3. a text label instead of an icon
+      - entity: climate.hall
+        x: 45
+        y: 55
+        style: label
+        name: Heating
+
+      # 4. a small dot, for sensors you only want to notice when they fire
+      - entity: binary_sensor.hall_motion
+        x: 55
+        y: 40
+        style: dot
+        hide_when_off: true
+
+      # 5. a whole-room hotspot that lights up with the entity
+      - entity: light.kitchen
+        style: area
+        x: 62
+        y: 4
+        width: 36
+        height: 42
+        color_on: "#ffca28"
+
+      # 6. custom icon, colours, size and actions
+      - entity: switch.washing_machine
+        x: 89
+        y: 85
+        name: Washer
+        icon: mdi:washing-machine
+        size: 40
+        color_on: "#26c6da"
+        color_off: "#607d8b"
+        show_name: true
+        show_state: true
+        tap_action:
+          action: toggle
+        hold_action:
+          action: more-info
+        double_tap_action:
+          action: navigate
+          navigation_path: /lovelace/utility

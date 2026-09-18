@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 520" role="img" aria-label="Ground floor">
+  <title>Ground floor</title>
+  <style>
+    .room  { fill: #2b3136; stroke: #78909c; stroke-width: 4; stroke-linejoin: round; }
+    .label { font: 500 15px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+             fill: #b0bec5; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
+    .door  { stroke: #2b3136; stroke-width: 6; stroke-linecap: round; }
+    .outer { fill: none; stroke: #90a4ae; stroke-width: 8; stroke-linejoin: round; }
+  </style>
+  <rect class="outer" x="16" y="16" width="768" height="488" rx="6"/>
+  <rect id="living" class="room" x="20" y="20" width="360" height="280"/>
+  <rect id="study" class="room" x="20" y="300" width="360" height="200"/>
+  <rect id="hall" class="room" x="380" y="20" width="120" height="480"/>
+  <rect id="kitchen" class="room" x="500" y="20" width="280" height="220"/>
+  <rect id="dining" class="room" x="500" y="240" width="280" height="140"/>
+  <rect id="wc" class="room" x="500" y="380" width="140" height="120"/>
+  <rect id="utility" class="room" x="640" y="380" width="140" height="120"/>
+  <line class="door" x1="380" y1="120" x2="380" y2="180"/>
+  <line class="door" x1="380" y1="360" x2="380" y2="420"/>
+  <line class="door" x1="500" y1="90" x2="500" y2="150"/>
+  <line class="door" x1="500" y1="290" x2="500" y2="340"/>
+  <line class="door" x1="500" y1="420" x2="500" y2="470"/>
+  <line class="door" x1="640" y1="430" x2="640" y2="470"/>
+  <line class="door" x1="200" y1="300" x2="260" y2="300"/>
+  <text class="label" x="200" y="160">Living Room</text>
+  <text class="label" x="200" y="400">Study</text>
+  <text class="label" x="440" y="260">Hall</text>
+  <text class="label" x="640" y="130">Kitchen</text>
+  <text class="label" x="640" y="310">Dining</text>
+  <text class="label" x="570" y="440">WC</text>
+  <text class="label" x="710" y="440">Utility</text>
+</svg>

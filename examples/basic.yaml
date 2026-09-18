@@ -1,0 +1,41 @@
+# Minimal two-storey setup.
+# Copy your floorplans to config/www/floorplans/ — they are then served from /local/.
+type: custom:home-layout-card
+title: Home
+floors:
+  - id: first
+    name: First Floor
+    level: 1
+    icon: mdi:stairs-up
+    image: /local/floorplans/first-floor.svg
+    markers:
+      - entity: light.main_bedroom
+        x: 25
+        y: 30
+      - entity: cover.bedroom_blind
+        x: 80
+        y: 27
+      - entity: binary_sensor.landing_motion
+        x: 55
+        y: 50
+        style: dot
+
+  - id: ground
+    name: Ground Floor
+    level: 0
+    icon: mdi:home
+    image: /local/floorplans/ground-floor.svg
+    markers:
+      - entity: light.living_room
+        x: 17
+        y: 22
+      - entity: sensor.living_temperature
+        x: 28
+        y: 45
+        style: badge
+      - entity: light.kitchen
+        x: 70
+        y: 16
+      - entity: lock.front_door
+        x: 55
+        y: 88
