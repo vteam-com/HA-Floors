@@ -6,7 +6,7 @@
  * https://github.com/YOUR_USERNAME/home-layout-card
  */
 
-const HLC_VERSION = "1.2.4";
+const HLC_VERSION = "1.3.1";
 
 /* ------------------------------------------------------------------ *
  * Small helpers
@@ -751,6 +751,8 @@ const CARD_STYLES = `
   .plan .canvas {
     position: relative;
     width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
     line-height: 0;
   }
   .plan img.floorplan,
@@ -1076,6 +1078,13 @@ class HomeLayoutCard extends HTMLElement {
     if (this._config && !this._built) this._render();
   }
 
+  disconnectedCallback() {
+    if (this._fitObserver) {
+      this._fitObserver.disconnect();
+      this._fitObserver = null;
+    }
+  }
+
   /* ---------------- persistence of the selected floor ---------------- */
 
   _storageKey() {
@@ -1150,6 +1159,7 @@ class HomeLayoutCard extends HTMLElement {
     card.appendChild(footer);
 
     if (this._config.allow_zoom) this._attachZoom(stage);
+    this._attachFit(stage);
 
     this._built = true;
     this._renderedUnits = this._unitSystem();
@@ -1308,6 +1318,7 @@ class HomeLayoutCard extends HTMLElement {
       img.alt = `${floor.name} floorplan`;
       img.loading = "lazy";
       img.src = src;
+      img.addEventListener("load", () => this._applyFit());
       img.addEventListener("error", () => {
         if (rooms) {
           // The rooms still describe the storey; drop the broken image and keep them.
@@ -1429,6 +1440,63 @@ class HomeLayoutCard extends HTMLElement {
     return box.children.length ? box : null;
   }
 
+  /** Width/height the plan wants, from an explicit ratio, the image, or the rooms. */
+  _planRatio(floor) {
+    const raw = floor.aspect_ratio || this._config.aspect_ratio;
+    if (raw) {
+      const parts = String(raw).split(/[:/]/);
+      const w = Number(parts[0]);
+      const h = Number(parts[1]);
+      if (w > 0 && h > 0) return w / h;
+    }
+    if (this._floorImage(floor) && this._plansEl) {
+      const img = this._plansEl.querySelector(`.plan[data-floor="${floor.id}"] img.floorplan`);
+      if (img && img.naturalWidth > 0 && img.naturalHeight > 0) return img.naturalWidth / img.naturalHeight;
+      const svg = this._plansEl.querySelector(`.plan[data-floor="${floor.id}"] .svg-host svg`);
+      const view = svg && svg.viewBox && svg.viewBox.baseVal;
+      if (view && view.width > 0 && view.height > 0) return view.width / view.height;
+    }
+    const extent = this._layout(floor).extent;
+    return extent ? extent.width / extent.depth : null;
+  }
+
+  /**
+   * Size each plan so the whole thing is visible inside the card, letterboxed
+   * rather than cropped. Only ever shrinks: when the card is tall enough the
+   * plan just fills the width, which keeps this from fighting a card whose
+   * height is decided by its content.
+   */
+  _applyFit() {
+    const stage = this._stageEl;
+    if (!stage || !this._plansEl) return;
+    const style = window.getComputedStyle(stage);
+    const availW = stage.clientWidth - parseFloat(style.paddingLeft || 0) - parseFloat(style.paddingRight || 0);
+    const availH = stage.clientHeight - parseFloat(style.paddingTop || 0) - parseFloat(style.paddingBottom || 0);
+    if (!(availW > 0)) return;
+
+    this._config.floors.forEach((floor) => {
+      const plan = this._plansEl.querySelector(`.plan[data-floor="${floor.id}"]`);
+      const canvas = plan && plan.querySelector(".canvas");
+      if (!canvas) return;
+      const ratio = this._planRatio(floor);
+      if (!ratio) {
+        canvas.style.width = "";
+        return;
+      }
+      const wanted = availW / ratio;
+      const width = availH > 0 && wanted > availH + 1 ? availH * ratio : availW;
+      canvas.style.width = `${Math.max(Math.round(width), 1)}px`;
+    });
+  }
+
+  _attachFit(stage) {
+    if (this._fitObserver) this._fitObserver.disconnect();
+    this._applyFit();
+    if (typeof ResizeObserver === "undefined") return;
+    this._fitObserver = new ResizeObserver(() => this._applyFit());
+    this._fitObserver.observe(stage);
+  }
+
   _floorImage(floor) {
     if (floor.image_dark && this._isDarkMode()) return floor.image_dark;
     return floor.image;
@@ -1476,6 +1544,7 @@ class HomeLayoutCard extends HTMLElement {
       host.innerHTML = "";
       host.appendChild(document.importNode(svg, true));
       this._wireBindings(floor, host);
+      this._applyFit();
       this._updateStates();
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -1806,15 +1875,48 @@ class HomeLayoutCard extends HTMLElement {
     };
     this._applyZoom = apply;
 
+    /**
+     * Scale about a point on screen, so whatever is under the fingers stays
+     * under them. The transform is `translate(t) scale(s)` about the centre,
+     * so a point u (measured from the untransformed centre) sits at u*s + t;
+     * holding it still across a scale change gives t1 = u - (u - t0) * s1/s0.
+     */
+    const zoomAround = (factor, clientX, clientY) => {
+      const from = this._zoom.scale;
+      const to = clamp(from * factor, 1, 5);
+      if (to === from) return;
+      if (to === 1) {
+        this._zoom = { scale: 1, x: 0, y: 0 };
+        apply();
+        return;
+      }
+      const plan = this._plansEl.querySelector(".plan.active");
+      if (!plan) return;
+      const rect = plan.getBoundingClientRect();
+      const ux = clientX - (rect.left + rect.width / 2 - this._zoom.x);
+      const uy = clientY - (rect.top + rect.height / 2 - this._zoom.y);
+      const k = to / from;
+      this._zoom = {
+        scale: to,
+        x: ux - (ux - this._zoom.x) * k,
+        y: uy - (uy - this._zoom.y) * k,
+      };
+      apply();
+    };
+    this._zoomAround = zoomAround;
+
     stage.addEventListener("wheel", (ev) => {
       if (this._stacked) return;
-      if (!ev.ctrlKey && Math.abs(ev.deltaY) < 4) return;
+      // A trackpad pinch arrives as ctrl+wheel. A plain wheel is the user
+      // scrolling the dashboard, so let it through instead of swallowing it --
+      // a card that eats the scroll makes the page feel broken.
+      if (!ev.ctrlKey && !ev.metaKey) return;
       ev.preventDefault();
-      const next = clamp(this._zoom.scale * (ev.deltaY > 0 ? 0.9 : 1.1), 1, 5);
-      if (next === 1) { this._zoom = { scale: 1, x: 0, y: 0 }; }
-      else this._zoom.scale = next;
-      apply();
+      // A pinch is a stream of small deltas, so scale continuously with the
+      // gesture. Fixed percentage steps would jump straight to the limit.
+      zoomAround(Math.exp(-ev.deltaY * 0.01), ev.clientX, ev.clientY);
     }, { passive: false });
+
 
     stage.addEventListener("pointerdown", (ev) => {
       if (this._stacked || this._zoom.scale === 1) return;
