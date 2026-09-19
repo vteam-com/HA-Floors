@@ -6,7 +6,7 @@
  * https://github.com/YOUR_USERNAME/home-layout-card
  */
 
-const HLC_VERSION = "1.2.1";
+const HLC_VERSION = "1.2.3";
 
 /* ------------------------------------------------------------------ *
  * Small helpers
@@ -2021,6 +2021,8 @@ const EDITOR_STYLES = `
     background: color-mix(in srgb, var(--accent-color, #03a9f4) 26%, transparent);
   }
   .room-box.dragging { cursor: grabbing; }
+  /* While placing a marker the rooms would otherwise eat the click. */
+  .preview-wrap.placing .room-box { pointer-events: none; }
   .room-box-label {
     font-size: 10px;
     line-height: 1.25;
@@ -2167,9 +2169,14 @@ class HomeLayoutCardEditor extends HTMLElement {
     if (opts.max !== undefined) input.max = opts.max;
     if (opts.step !== undefined) input.step = opts.step;
     input.addEventListener("change", () => onChange(input.value));
-    // `lazy` fields only commit on blur/Enter, for changes that force a re-render.
+    // `lazy` fields hold off until the value settles, for changes that force a
+    // re-render. They also commit on blur: `change` does not always fire, and a
+    // value that was typed but never committed is silently lost on save.
     if (type !== "color" && !opts.lazy) {
       input.addEventListener("input", () => onChange(input.value));
+    }
+    if (opts.lazy) {
+      input.addEventListener("blur", () => onChange(input.value));
     }
     return input;
   }
@@ -2326,6 +2333,13 @@ class HomeLayoutCardEditor extends HTMLElement {
     }
 
     if (root.host.parentElement) root.host.parentElement.scrollTop = scroll;
+
+    if (this._scrollToRoom) {
+      // Otherwise the new room lands below the fold and the button looks dead.
+      const card = root.querySelector(`.room-card[data-room="${this._scrollToRoom}"]`);
+      this._scrollToRoom = null;
+      if (card && card.scrollIntoView) card.scrollIntoView({ block: "nearest" });
+    }
 
     if (restore && restore.index >= 0) {
       const next = fields()[restore.index];
@@ -2940,6 +2954,7 @@ class HomeLayoutCardEditor extends HTMLElement {
       }, floor.rooms.length);
       floor.rooms.push(room);
       this._openRoom = room.id;
+      this._scrollToRoom = room.id;
       this._emit(true);
     });
     const section = this._section(`Rooms on ${floor.name}`, addBtn);
