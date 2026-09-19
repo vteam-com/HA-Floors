@@ -6,7 +6,7 @@
  * https://github.com/YOUR_USERNAME/home-layout-card
  */
 
-const HLC_VERSION = "1.2.0";
+const HLC_VERSION = "1.2.1";
 
 /* ------------------------------------------------------------------ *
  * Small helpers
@@ -2297,6 +2297,19 @@ class HomeLayoutCardEditor extends HTMLElement {
     if (!this._config) return;
     const root = this.shadowRoot;
     const scroll = root.host.parentElement ? root.host.parentElement.scrollTop : 0;
+
+    // A field that re-renders on every keystroke would otherwise lose focus
+    // after the first character, which reads as "typing doesn't work".
+    const fields = () => Array.from(root.querySelectorAll("input, select, textarea"));
+    const active = root.activeElement;
+    let restore = null;
+    if (active && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName)) {
+      let start = null;
+      let end = null;
+      try { start = active.selectionStart; end = active.selectionEnd; } catch (err) { /* number/colour input */ }
+      restore = { index: fields().indexOf(active), start, end };
+    }
+
     root.innerHTML = "";
 
     const style = document.createElement("style");
@@ -2313,6 +2326,16 @@ class HomeLayoutCardEditor extends HTMLElement {
     }
 
     if (root.host.parentElement) root.host.parentElement.scrollTop = scroll;
+
+    if (restore && restore.index >= 0) {
+      const next = fields()[restore.index];
+      if (next) {
+        next.focus();
+        if (restore.start !== null) {
+          try { next.setSelectionRange(restore.start, restore.end); } catch (err) { /* not selectable */ }
+        }
+      }
+    }
   }
 
   _renderCardSection() {
@@ -2465,14 +2488,20 @@ class HomeLayoutCardEditor extends HTMLElement {
   _renderFloorDetail() {
     const floor = this._floor;
     const section = this._section(`Storey — ${floor.name}`);
+    const heading = section.querySelector("h4 .grow");
 
     const grid = document.createElement("div");
     grid.className = "grid";
     grid.appendChild(this._field("Name", this._input("text", floor.name, (v) => {
       floor.name = v || "Floor";
       this._emit();
+      // Nothing re-renders on a rename, so move the labels along by hand.
+      if (heading) heading.textContent = `Storey — ${floor.name}`;
       const row = this.shadowRoot.querySelectorAll(".floor-row")[this._floorIndex];
-      if (row) row.querySelector(".nm").textContent = floor.name;
+      const label = row && row.querySelector(".nm");
+      if (label) label.textContent = floor.name;
+      const rooms = this.shadowRoot.querySelector(".section.rooms h4 .grow");
+      if (rooms) rooms.textContent = `Rooms on ${floor.name}`;
     })));
     grid.appendChild(this._field("Level (0 = ground)", this._input("number", floor.level, (v) => {
       floor.level = Number(v) || 0;
@@ -2732,6 +2761,30 @@ class HomeLayoutCardEditor extends HTMLElement {
     let mode = null;
     let origin = null;
 
+    /**
+     * Re-solve and move the existing boxes, without rebuilding the editor.
+     * Re-rendering mid-drag would destroy the node holding pointer capture and
+     * the drag would die after one move event, so everything here is in place.
+     * The extent stays frozen at its drag-start value so the pixels-to-metres
+     * mapping cannot shift under the pointer; the release re-renders properly.
+     */
+    const repaint = () => {
+      const solved = solveFloorLayout(this._floor);
+      this._floor.rooms.forEach((other) => {
+        const otherBox = solved.boxes.get(other.id);
+        const node = wrap.querySelector(`.room-box[data-room="${other.id}"]`);
+        if (!otherBox || !node) return;
+        node.style.left = `${(otherBox.x / extent.width) * 100}%`;
+        node.style.top = `${(otherBox.y / extent.depth) * 100}%`;
+        node.style.width = `${(otherBox.width / extent.width) * 100}%`;
+        node.style.height = `${(otherBox.depth / extent.depth) * 100}%`;
+        const caption = node.querySelector(".room-box-label");
+        if (caption) {
+          caption.textContent = `${other.name || "Room"}\n${formatLength(other.width, system)} \u00d7 ${formatLength(other.depth, system)}`;
+        }
+      });
+    };
+
     const start = (kind, target) => (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
@@ -2746,7 +2799,8 @@ class HomeLayoutCardEditor extends HTMLElement {
       const at = metresAt(ev);
       const dx = at.x - origin.at.x;
       const dy = at.y - origin.at.y;
-      if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01 && !origin.moved) return;
+      // Ignore the jitter of a click, so tapping a room still selects it.
+      if (!origin.moved && Math.abs(dx) < 0.15 && Math.abs(dy) < 0.15) return;
       origin.moved = true;
 
       if (mode === "resize") {
@@ -2765,7 +2819,7 @@ class HomeLayoutCardEditor extends HTMLElement {
           room.y = round2(Math.max(origin.y + dy, 0));
         }
       }
-      this._emit(true); // the whole plan re-solves around the moved room
+      repaint();
     };
 
     const stop = (ev) => {
@@ -2775,7 +2829,8 @@ class HomeLayoutCardEditor extends HTMLElement {
       mode = null;
       el.classList.remove("dragging");
       try { target.releasePointerCapture(ev.pointerId); } catch (err) { /* already released */ }
-      if (!moved) {
+      if (moved) this._emit(true); // commit once, and re-solve the extent
+      else {
         this._openRoom = this._openRoom === room.id ? null : room.id;
         this._render();
       }
@@ -2888,6 +2943,7 @@ class HomeLayoutCardEditor extends HTMLElement {
       this._emit(true);
     });
     const section = this._section(`Rooms on ${floor.name}`, addBtn);
+    section.classList.add("rooms");
 
     if (this._areaOptions().length) {
       const bar = document.createElement("div");
