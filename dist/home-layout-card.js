@@ -6,7 +6,7 @@
  * https://github.com/YOUR_USERNAME/home-layout-card
  */
 
-const HLC_VERSION = "1.0.0";
+const HLC_VERSION = "1.2.0";
 
 /* ------------------------------------------------------------------ *
  * Small helpers
@@ -244,20 +244,200 @@ const lengthFieldValue = (metres, system) =>
 
 const lengthFieldUnit = (system) => (system === "imperial" ? "ft" : "m");
 
+/* ------------------------------------------------------------------ *
+ * Laying a storey out
+ *
+ * People describe a house relationally — "the kitchen is east of the hall,
+ * with a door five metres along". So that is what a room stores, and the
+ * coordinates are derived from it. Nobody should ever type an x/y.
+ * ------------------------------------------------------------------ */
+
+const WALLS = ["north", "east", "south", "west"];
+const OPPOSITE_WALL = { north: "south", south: "north", east: "west", west: "east" };
+const DEFAULT_DOOR_WIDTH = 0.9; // metres, a touch under a standard 36" doorway
+
+/** The stretch of shared wall two adjacent rooms actually have in common. */
+const sharedWall = (parent, child, wall) => {
+  const vertical = wall === "east" || wall === "west";
+  if (vertical) {
+    const from = Math.max(parent.y, child.y);
+    const to = Math.min(parent.y + parent.depth, child.y + child.depth);
+    const at = wall === "east" ? parent.x + parent.width : parent.x;
+    return to > from ? { vertical: true, at, from, to, origin: parent.y } : null;
+  }
+  const from = Math.max(parent.x, child.x);
+  const to = Math.min(parent.x + parent.width, child.x + child.width);
+  const at = wall === "south" ? parent.y + parent.depth : parent.y;
+  return to > from ? { vertical: false, at, from, to, origin: parent.x } : null;
+};
+
+const doorSegment = (parent, child, wall, door) => {
+  const shared = sharedWall(parent, child, wall);
+  if (!shared) return null;
+  const span = shared.to - shared.from;
+  const width = Math.min(door.width, span);
+  const start = door.at === null
+    ? shared.from + (span - width) / 2
+    : clamp(shared.origin + door.at, shared.from, shared.to - width);
+  return shared.vertical
+    ? { vertical: true, x1: shared.at, y1: start, x2: shared.at, y2: start + width }
+    : { vertical: false, x1: start, y1: shared.at, x2: start + width, y2: shared.at };
+};
+
 /**
- * Real-world size of a storey in metres. An explicit storey size wins; failing
- * that the rooms supply their own bounding box, so a plan drawn purely from
- * rooms still maps onto the canvas.
+ * Resolve a storey's room graph into absolute rectangles, doors and an extent.
+ * A room with no `attach` anchors the plan; everything else hangs off a wall
+ * of another room. Loops and dangling references are reported, not thrown.
  */
-const floorExtent = (floor) => {
-  if (floor.width > 0 && floor.depth > 0) return { width: floor.width, depth: floor.depth };
-  let width = 0;
-  let depth = 0;
-  (floor.rooms || []).forEach((room) => {
-    width = Math.max(width, room.x + room.width);
-    depth = Math.max(depth, room.y + room.depth);
+const solveFloorLayout = (floor) => {
+  const rooms = (floor.rooms || []).filter((room) => room.width > 0 && room.depth > 0);
+  const byId = new Map(rooms.map((room) => [room.id, room]));
+  const boxes = new Map();
+  const doors = [];
+  const problems = [];
+
+  const anchored = (room) => ({ x: room.x || 0, y: room.y || 0, width: room.width, depth: room.depth });
+
+  const place = (room, chain) => {
+    if (boxes.has(room.id)) return boxes.get(room.id);
+    if (chain.has(room.id)) {
+      problems.push(`"${room.name}" is attached in a loop — anchoring it instead.`);
+      const looped = anchored(room);
+      boxes.set(room.id, looped);
+      return looped;
+    }
+    chain.add(room.id);
+
+    const attach = room.attach;
+    const parent = attach ? byId.get(attach.to) : null;
+    if (attach && !parent) {
+      problems.push(`"${room.name}" is attached to a room that no longer exists.`);
+    }
+
+    let box;
+    if (!parent) {
+      box = anchored(room);
+    } else {
+      const p = place(parent, chain);
+      const offset = attach.offset;
+      if (attach.wall === "east") {
+        box = { x: p.x + p.width, y: p.y + offset, width: room.width, depth: room.depth };
+      } else if (attach.wall === "west") {
+        box = { x: p.x - room.width, y: p.y + offset, width: room.width, depth: room.depth };
+      } else if (attach.wall === "north") {
+        box = { x: p.x + offset, y: p.y - room.depth, width: room.width, depth: room.depth };
+      } else {
+        box = { x: p.x + offset, y: p.y + p.depth, width: room.width, depth: room.depth };
+      }
+      if (attach.door) {
+        const segment = doorSegment(p, box, attach.wall, attach.door);
+        if (segment) doors.push({ ...segment, room: room.id, to: parent.id });
+        else problems.push(`"${room.name}" has a door but does not touch "${parent.name}".`);
+      }
+    }
+
+    chain.delete(room.id);
+    boxes.set(room.id, box);
+    return box;
+  };
+
+  rooms.forEach((room) => place(room, new Set()));
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  boxes.forEach((box) => {
+    minX = Math.min(minX, box.x);
+    minY = Math.min(minY, box.y);
+    maxX = Math.max(maxX, box.x + box.width);
+    maxY = Math.max(maxY, box.y + box.depth);
   });
-  return width > 0 && depth > 0 ? { width, depth } : null;
+  if (!Number.isFinite(minX)) {
+    return { boxes, doors, problems, extent: null };
+  }
+
+  // Attaching westwards or northwards pushes rooms negative; slide it all back.
+  boxes.forEach((box) => {
+    box.x -= minX;
+    box.y -= minY;
+  });
+  doors.forEach((door) => {
+    door.x1 -= minX;
+    door.x2 -= minX;
+    door.y1 -= minY;
+    door.y2 -= minY;
+  });
+
+  return {
+    boxes,
+    doors,
+    problems,
+    extent: {
+      // An explicit storey size only ever pads the plan; it never clips a room.
+      width: Math.max(floor.width || 0, maxX - minX),
+      depth: Math.max(floor.depth || 0, maxY - minY),
+    },
+  };
+};
+
+/**
+ * Which wall of `parentBox` a room would best hang off to land near `desired`.
+ * This is what turns a drag into a change of attachment rather than a stray
+ * coordinate, so the plan stays a graph the user can still reason about.
+ */
+const bestAttachment = (parentBox, room, desired) => {
+  let best = null;
+  WALLS.forEach((wall) => {
+    let x;
+    let y;
+    let offset;
+    if (wall === "east") {
+      offset = desired.y - parentBox.y;
+      x = parentBox.x + parentBox.width;
+      y = parentBox.y + offset;
+    } else if (wall === "west") {
+      offset = desired.y - parentBox.y;
+      x = parentBox.x - room.width;
+      y = parentBox.y + offset;
+    } else if (wall === "north") {
+      offset = desired.x - parentBox.x;
+      x = parentBox.x + offset;
+      y = parentBox.y - room.depth;
+    } else {
+      offset = desired.x - parentBox.x;
+      x = parentBox.x + offset;
+      y = parentBox.y + parentBox.depth;
+    }
+    const distance = Math.hypot(x - desired.x, y - desired.y);
+    if (!best || distance < best.distance) best = { wall, offset: round2(offset), distance };
+  });
+  return best;
+};
+
+/**
+ * Devices sit inside their room. Anything without an explicit spot is spread
+ * over a grid, so dropping an entity in never needs a position to be useful.
+ */
+const roomDeviceMarkers = (room, box, extent) => {
+  const auto = room.devices.filter((device) => device.x === null || device.y === null);
+  const cols = Math.max(1, Math.ceil(Math.sqrt(auto.length)));
+  const rows = Math.max(1, Math.ceil(auto.length / cols));
+
+  return room.devices.map((device) => {
+    let rx = device.x;
+    let ry = device.y;
+    if (rx === null || ry === null) {
+      const slot = auto.indexOf(device);
+      rx = (((slot % cols) + 0.5) / cols) * 100;
+      ry = ((Math.floor(slot / cols) + 0.5) / rows) * 100;
+    }
+    return {
+      ...device,
+      x: ((box.x + (rx / 100) * box.width) / extent.width) * 100,
+      y: ((box.y + (ry / 100) * box.depth) / extent.depth) * 100,
+    };
+  });
 };
 
 /* ------------------------------------------------------------------ *
@@ -307,6 +487,41 @@ const normalizeBinding = (raw) => {
   };
 };
 
+/** A device is a marker that lives inside a room, positioned as a % of it. */
+const normalizeDevice = (raw, index) => {
+  const cfg = typeof raw === "string" ? { entity: raw } : { ...(raw || {}) };
+  const device = normalizeMarker(cfg, index);
+  // null means "put it wherever looks sensible", which is the common case.
+  device.x = cfg.x === undefined || cfg.x === null ? null : clamp(Number(cfg.x), 0, 100);
+  device.y = cfg.y === undefined || cfg.y === null ? null : clamp(Number(cfg.y), 0, 100);
+  return device;
+};
+
+const normalizeDoor = (raw) => {
+  if (raw === undefined || raw === null || raw === false) return null;
+  if (raw === true) return { at: null, width: DEFAULT_DOOR_WIDTH };
+  if (typeof raw === "number" || typeof raw === "string") {
+    return { at: parseLength(raw), width: DEFAULT_DOOR_WIDTH };
+  }
+  const at = parseLength(raw.at !== undefined ? raw.at : raw.offset);
+  const width = parseLength(raw.width);
+  return { at, width: width === null || width <= 0 ? DEFAULT_DOOR_WIDTH : width };
+};
+
+const normalizeAttach = (raw) => {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const to = raw.to || raw.room || "";
+  if (!to) return null;
+  const wall = String(raw.wall || "").toLowerCase();
+  const offset = parseLength(raw.offset);
+  return {
+    to,
+    wall: WALLS.indexOf(wall) >= 0 ? wall : "east",
+    offset: offset === null ? 0 : offset,
+    door: normalizeDoor(raw.door),
+  };
+};
+
 const normalizeRoom = (raw, index) => {
   const room = { ...(raw || {}) };
   const at = parsePair(room.at !== undefined ? room.at : [room.x, room.y]);
@@ -316,16 +531,19 @@ const normalizeRoom = (raw, index) => {
   const size = parsePair(rawSize);
   const width = size ? Math.max(size[0], 0) : 0;
   const depth = size ? Math.max(size[1], 0) : 0;
-  // An explicit area covers rooms that are not plain rectangles.
-  const stated = Number(room.area);
+  // An explicit floor_area covers rooms that are not plain rectangles.
+  const stated = Number(room.floor_area);
   return {
     id: room.id || uid("room"),
     name: room.name === undefined ? `Room ${index + 1}` : room.name,
-    x: at ? Math.max(at[0], 0) : 0,
-    y: at ? Math.max(at[1], 0) : 0,
+    area: room.area || "",           // optional Home Assistant area id
+    x: at ? at[0] : 0,               // only used when the room anchors the plan
+    y: at ? at[1] : 0,
     width,
     depth,
-    area: Number.isFinite(stated) && stated > 0 ? stated : width * depth,
+    floor_area: Number.isFinite(stated) && stated > 0 ? stated : width * depth,
+    attach: normalizeAttach(room.attach),
+    devices: (room.devices || []).map(normalizeDevice),
     color: room.color || "",
     label: room.label === undefined ? true : Boolean(room.label),
   };
@@ -730,6 +948,17 @@ const CARD_STYLES = `
     line-height: 1.2;
     color: var(--hlc-text);
   }
+  .door {
+    position: absolute;
+    background: var(--hlc-surface);
+    height: 3px;
+    transform: translate(0, -1.5px);
+  }
+  .door.vertical {
+    width: 3px;
+    height: auto;
+    transform: translate(-1.5px, 0);
+  }
   .room-name { font-size: 12px; font-weight: 500; }
   .room-dim,
   .room-area { font-size: 10px; color: var(--hlc-muted); font-variant-numeric: tabular-nums; }
@@ -895,6 +1124,7 @@ class HomeLayoutCard extends HTMLElement {
 
     this._markers = [];
     this._bindings = [];
+    this._layouts = new Map();
     this._renderToken = (this._renderToken || 0) + 1;
 
     const stage = document.createElement("div");
@@ -1048,7 +1278,7 @@ class HomeLayoutCard extends HTMLElement {
       canvas.style.aspectRatio = String(ratio).replace(":", " / ");
     } else if (!this._floorImage(floor)) {
       // Nothing to give the canvas its shape, so let the rooms' own proportions do it.
-      const extent = floorExtent(floor);
+      const extent = this._layout(floor).extent;
       if (extent) canvas.style.aspectRatio = `${extent.width} / ${extent.depth}`;
     }
     if (floor.opacity !== undefined) canvas.style.opacity = String(floor.opacity);
@@ -1092,7 +1322,7 @@ class HomeLayoutCard extends HTMLElement {
 
     if (rooms) canvas.appendChild(rooms);
 
-    floor.markers.forEach((marker) => {
+    floor.markers.concat(this._roomDevices(floor)).forEach((marker) => {
       canvas.appendChild(this._buildMarker(marker, floor));
     });
 
@@ -1103,22 +1333,36 @@ class HomeLayoutCard extends HTMLElement {
     return unitSystemOf(this._config, this._hass);
   }
 
+  /** Solved layouts are reused by the renderer and the state updater. */
+  _layout(floor) {
+    if (!this._layouts) this._layouts = new Map();
+    if (!this._layouts.has(floor.id)) this._layouts.set(floor.id, solveFloorLayout(floor));
+    return this._layouts.get(floor.id);
+  }
+
   _buildRooms(floor) {
     if (!this._config.show_rooms || !floor.rooms.length) return null;
-    const extent = floorExtent(floor);
+    const { boxes, doors, extent, problems } = this._layout(floor);
     if (!extent) return null;
+
+    problems.forEach((problem) => {
+      // eslint-disable-next-line no-console
+      console.warn(`home-layout-card: ${floor.name}: ${problem}`);
+    });
 
     const layer = document.createElement("div");
     layer.className = "rooms";
+
     floor.rooms.forEach((room) => {
-      if (!(room.width > 0) || !(room.depth > 0)) return;
+      const box = boxes.get(room.id);
+      if (!box) return;
       const el = document.createElement("div");
       el.className = "room";
       el.dataset.room = room.id;
-      el.style.left = `${(room.x / extent.width) * 100}%`;
-      el.style.top = `${(room.y / extent.depth) * 100}%`;
-      el.style.width = `${(room.width / extent.width) * 100}%`;
-      el.style.height = `${(room.depth / extent.depth) * 100}%`;
+      el.style.left = `${(box.x / extent.width) * 100}%`;
+      el.style.top = `${(box.y / extent.depth) * 100}%`;
+      el.style.width = `${(box.width / extent.width) * 100}%`;
+      el.style.height = `${(box.depth / extent.depth) * 100}%`;
       if (room.color) el.style.setProperty("--hlc-room-color", room.color);
       if (room.label) {
         const label = this._roomLabel(room);
@@ -1126,7 +1370,37 @@ class HomeLayoutCard extends HTMLElement {
       }
       layer.appendChild(el);
     });
+
+    // Doors are drawn over the wall they pierce, in the card's own background,
+    // so a shared wall reads as an opening rather than two rooms touching.
+    doors.forEach((door) => {
+      const el = document.createElement("div");
+      el.className = `door${door.vertical ? " vertical" : ""}`;
+      if (door.vertical) {
+        el.style.left = `${(door.x1 / extent.width) * 100}%`;
+        el.style.top = `${(door.y1 / extent.depth) * 100}%`;
+        el.style.height = `${((door.y2 - door.y1) / extent.depth) * 100}%`;
+      } else {
+        el.style.left = `${(door.x1 / extent.width) * 100}%`;
+        el.style.top = `${(door.y1 / extent.depth) * 100}%`;
+        el.style.width = `${((door.x2 - door.x1) / extent.width) * 100}%`;
+      }
+      layer.appendChild(el);
+    });
+
     return layer.children.length ? layer : null;
+  }
+
+  /** Every device across every room, flattened into marker configs. */
+  _roomDevices(floor) {
+    const { boxes, extent } = this._layout(floor);
+    if (!extent) return [];
+    const markers = [];
+    floor.rooms.forEach((room) => {
+      const box = boxes.get(room.id);
+      if (box && room.devices.length) markers.push(...roomDeviceMarkers(room, box, extent));
+    });
+    return markers;
   }
 
   _roomLabel(room) {
@@ -1149,7 +1423,7 @@ class HomeLayoutCard extends HTMLElement {
     if (this._config.show_room_areas) {
       const area = document.createElement("span");
       area.className = "room-area";
-      area.textContent = formatArea(room.area, system);
+      area.textContent = formatArea(room.floor_area, system);
       box.appendChild(area);
     }
     return box.children.length ? box : null;
@@ -1756,6 +2030,23 @@ const EDITOR_STYLES = `
     pointer-events: none;
     color: var(--primary-text-color);
   }
+  .device-dot {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--card-background-color, #fff);
+    border: 1px solid var(--divider-color, rgba(0,0,0,.2));
+    box-shadow: 0 1px 3px rgba(0,0,0,.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    touch-action: none;
+    color: var(--primary-text-color);
+  }
+  .device-dot ha-icon { --mdc-icon-size: 14px; }
   .room-resize {
     position: absolute;
     right: -6px;
@@ -2256,15 +2547,15 @@ class HomeLayoutCardEditor extends HTMLElement {
     } else {
       const empty = document.createElement("div");
       empty.className = "preview-empty";
-      empty.textContent = "No image yet — markers can still be placed on this blank plan.";
+      empty.textContent = "No image needed — the rooms below draw the plan.";
       wrap.appendChild(empty);
     }
 
-    const extent = floorExtent(floor);
-    if (extent) {
-      if (!src) wrap.style.aspectRatio = `${extent.width} / ${extent.depth}`;
+    const layout = solveFloorLayout(floor);
+    if (layout.extent) {
+      if (!src) wrap.style.aspectRatio = `${layout.extent.width} / ${layout.extent.depth}`;
       floor.rooms.forEach((room) => {
-        wrap.appendChild(this._renderPreviewRoom(room, extent, wrap));
+        wrap.appendChild(this._renderPreviewRoom(room, layout, wrap));
       });
     }
 
@@ -2375,31 +2666,61 @@ class HomeLayoutCardEditor extends HTMLElement {
     return dot;
   }
 
-  _renderPreviewRoom(room, extent, wrap) {
-    const system = unitSystemOf(this._config, this._hass);
+  /* ---------------- rooms ---------------- */
+
+  _system() {
+    return unitSystemOf(this._config, this._hass);
+  }
+
+  _areaOptions() {
+    const areas = (this._hass && this._hass.areas) || {};
+    return Object.keys(areas)
+      .map((id) => [id, areas[id].name || id])
+      .sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  }
+
+  /** Entities belonging to an area, directly or through their device. */
+  _entitiesInArea(areaId) {
+    if (!this._hass || !areaId) return [];
+    const entities = this._hass.entities || {};
+    const devices = this._hass.devices || {};
+    return Object.keys(entities).filter((id) => {
+      const entry = entities[id];
+      if (!entry || entry.hidden_by || entry.disabled_by) return false;
+      if (entry.area_id) return entry.area_id === areaId;
+      const device = entry.device_id ? devices[entry.device_id] : null;
+      return Boolean(device && device.area_id === areaId);
+    }).sort();
+  }
+
+  _renderPreviewRoom(room, layout, wrap) {
+    const extent = layout.extent;
+    const box = layout.boxes.get(room.id);
+    if (!box) return document.createElement("div");
+    const system = this._system();
+
     const el = document.createElement("div");
     el.className = "room-box";
     el.dataset.room = room.id;
     el.dataset.selected = String(this._openRoom === room.id);
+    el.style.left = `${(box.x / extent.width) * 100}%`;
+    el.style.top = `${(box.y / extent.depth) * 100}%`;
+    el.style.width = `${(box.width / extent.width) * 100}%`;
+    el.style.height = `${(box.depth / extent.depth) * 100}%`;
 
     const label = document.createElement("span");
     label.className = "room-box-label";
+    label.textContent = `${room.name || "Room"}\n${formatLength(room.width, system)} \u00d7 ${formatLength(room.depth, system)}`;
     el.appendChild(label);
 
     const handle = document.createElement("div");
     handle.className = "room-resize";
     el.appendChild(handle);
 
-    const paint = () => {
-      el.style.left = `${(room.x / extent.width) * 100}%`;
-      el.style.top = `${(room.y / extent.depth) * 100}%`;
-      el.style.width = `${(room.width / extent.width) * 100}%`;
-      el.style.height = `${(room.depth / extent.depth) * 100}%`;
-      label.textContent = `${room.name || "Room"}\n${formatLength(room.width, system)} \u00d7 ${formatLength(room.depth, system)}`;
-    };
-    paint();
+    room.devices.forEach((device, i) => {
+      el.appendChild(this._renderPreviewDevice(room, device, i, el));
+    });
 
-    /** Pointer position in storey metres rather than pixels. */
     const metresAt = (ev) => {
       const rect = wrap.getBoundingClientRect();
       return {
@@ -2415,14 +2736,7 @@ class HomeLayoutCardEditor extends HTMLElement {
       ev.preventDefault();
       ev.stopPropagation();
       mode = kind;
-      origin = {
-        at: metresAt(ev),
-        x: room.x,
-        y: room.y,
-        width: room.width,
-        depth: room.depth,
-        moved: false,
-      };
+      origin = { at: metresAt(ev), x: box.x, y: box.y, width: room.width, depth: room.depth, moved: false };
       try { target.setPointerCapture(ev.pointerId); } catch (err) { /* synthetic pointer */ }
       el.classList.add("dragging");
     };
@@ -2430,17 +2744,28 @@ class HomeLayoutCardEditor extends HTMLElement {
     const move = (ev) => {
       if (!mode) return;
       const at = metresAt(ev);
+      const dx = at.x - origin.at.x;
+      const dy = at.y - origin.at.y;
+      if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01 && !origin.moved) return;
       origin.moved = true;
-      if (mode === "move") {
-        room.x = round2(clamp(origin.x + (at.x - origin.at.x), 0, Math.max(extent.width - room.width, 0)));
-        room.y = round2(clamp(origin.y + (at.y - origin.at.y), 0, Math.max(extent.depth - room.depth, 0)));
+
+      if (mode === "resize") {
+        room.width = Math.max(round2(origin.width + dx), 0.5);
+        room.depth = Math.max(round2(origin.depth + dy), 0.5);
+        room.floor_area = room.width * room.depth;
       } else {
-        room.width = round2(clamp(origin.width + (at.x - origin.at.x), 0.1, extent.width - room.x));
-        room.depth = round2(clamp(origin.depth + (at.y - origin.at.y), 0.1, extent.depth - room.y));
-        room.area = room.width * room.depth;
+        const parentBox = room.attach ? layout.boxes.get(room.attach.to) : null;
+        if (parentBox) {
+          // Keep the room attached: slide it along whichever wall now fits best.
+          const best = bestAttachment(parentBox, room, { x: origin.x + dx, y: origin.y + dy });
+          room.attach.wall = best.wall;
+          room.attach.offset = best.offset;
+        } else {
+          room.x = round2(Math.max(origin.x + dx, 0));
+          room.y = round2(Math.max(origin.y + dy, 0));
+        }
       }
-      paint();
-      this._refreshRoomFields(room);
+      this._emit(true); // the whole plan re-solves around the moved room
     };
 
     const stop = (ev) => {
@@ -2450,9 +2775,7 @@ class HomeLayoutCardEditor extends HTMLElement {
       mode = null;
       el.classList.remove("dragging");
       try { target.releasePointerCapture(ev.pointerId); } catch (err) { /* already released */ }
-      if (moved) this._emit();
-      else {
-        // A click without a drag selects the room and opens its fields.
+      if (!moved) {
         this._openRoom = this._openRoom === room.id ? null : room.id;
         this._render();
       }
@@ -2466,48 +2789,55 @@ class HomeLayoutCardEditor extends HTMLElement {
       node.addEventListener("pointercancel", stop);
     });
     el.addEventListener("click", (ev) => ev.stopPropagation());
-
     return el;
   }
 
-  /** Keep the numeric fields in step while a room is dragged on the plan. */
-  _refreshRoomFields(room) {
-    const root = this.shadowRoot;
-    if (!root) return;
-    const card = root.querySelector(`.room-card[data-room="${room.id}"]`);
-    if (!card) return;
-    const system = unitSystemOf(this._config, this._hass);
-    ["x", "y", "width", "depth"].forEach((key) => {
-      const input = card.querySelector(`input[data-room-field="${key}"]`);
-      if (input && root.activeElement !== input) input.value = lengthFieldValue(room[key], system);
+  _renderPreviewDevice(room, device, index, roomEl) {
+    const dot = document.createElement("div");
+    dot.className = "device-dot";
+    dot.title = device.entity || "no entity yet";
+
+    const auto = room.devices.filter((d) => d.x === null || d.y === null);
+    const cols = Math.max(1, Math.ceil(Math.sqrt(auto.length)));
+    const rows = Math.max(1, Math.ceil(auto.length / cols));
+    const slot = auto.indexOf(device);
+    const rx = device.x === null ? (((slot % cols) + 0.5) / cols) * 100 : device.x;
+    const ry = device.y === null ? ((Math.floor(slot / cols) + 0.5) / rows) * 100 : device.y;
+    dot.style.left = `${rx}%`;
+    dot.style.top = `${ry}%`;
+
+    const icon = document.createElement("ha-icon");
+    icon.setAttribute("icon", device.icon || fallbackIcon(device.entity, this._hass && this._hass.states[device.entity]));
+    dot.appendChild(icon);
+
+    let dragging = false;
+    let moved = false;
+    dot.addEventListener("pointerdown", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      dragging = true;
+      moved = false;
+      try { dot.setPointerCapture(ev.pointerId); } catch (err) { /* synthetic pointer */ }
     });
-    const readout = card.querySelector(".room-area-readout");
-    if (readout) readout.textContent = formatArea(room.width * room.depth, system);
-  }
-
-  /** Move a room's box on the plan after its fields were edited by hand. */
-  _syncPreviewRoom(room) {
-    const root = this.shadowRoot;
-    const extent = floorExtent(this._floor);
-    const el = root && root.querySelector(`.room-box[data-room="${room.id}"]`);
-    if (!extent || !el) return;
-    el.style.left = `${(room.x / extent.width) * 100}%`;
-    el.style.top = `${(room.y / extent.depth) * 100}%`;
-    el.style.width = `${(room.width / extent.width) * 100}%`;
-    el.style.height = `${(room.depth / extent.depth) * 100}%`;
-    const label = el.querySelector(".room-box-label");
-    if (label) {
-      const system = unitSystemOf(this._config, this._hass);
-      label.textContent = `${room.name || "Room"}\n${formatLength(room.width, system)} \u00d7 ${formatLength(room.depth, system)}`;
-    }
-  }
-
-  /** Rooms need a stable storey size, or every drag would resize the plan. */
-  _ensureFloorSize(floor) {
-    if (floor.width > 0 && floor.depth > 0) return;
-    const extent = floorExtent(floor);
-    floor.width = extent ? round2(extent.width) : 10;
-    floor.depth = extent ? round2(extent.depth) : 8;
+    dot.addEventListener("pointermove", (ev) => {
+      if (!dragging) return;
+      moved = true;
+      const rect = roomEl.getBoundingClientRect();
+      device.x = round2(clamp(((ev.clientX - rect.left) / rect.width) * 100, 0, 100));
+      device.y = round2(clamp(((ev.clientY - rect.top) / rect.height) * 100, 0, 100));
+      dot.style.left = `${device.x}%`;
+      dot.style.top = `${device.y}%`;
+    });
+    const stop = (ev) => {
+      if (!dragging) return;
+      dragging = false;
+      try { dot.releasePointerCapture(ev.pointerId); } catch (err) { /* already released */ }
+      if (moved) this._emit();
+    };
+    dot.addEventListener("pointerup", stop);
+    dot.addEventListener("pointercancel", stop);
+    dot.addEventListener("click", (ev) => ev.stopPropagation());
+    return dot;
   }
 
   _lengthInput(metres, system, onChange, opts = {}) {
@@ -2520,18 +2850,38 @@ class HomeLayoutCardEditor extends HTMLElement {
     });
   }
 
+  /** Seed rooms from the areas the user already keeps in Home Assistant. */
+  _importAreas(floor) {
+    const taken = new Set(floor.rooms.map((room) => room.area).filter(Boolean));
+    const fresh = this._areaOptions().filter(([id]) => !taken.has(id));
+    if (!fresh.length) return 0;
+
+    let previous = floor.rooms.length ? floor.rooms[floor.rooms.length - 1] : null;
+    fresh.forEach(([id, name]) => {
+      const room = normalizeRoom({
+        name,
+        area: id,
+        size: [4, 4],
+        attach: previous ? { to: previous.id, wall: "east", door: true } : undefined,
+        devices: this._entitiesInArea(id).slice(0, 6),
+      }, floor.rooms.length);
+      floor.rooms.push(room);
+      previous = room;
+    });
+    return fresh.length;
+  }
+
   _renderRoomsSection() {
     const floor = this._floor;
-    const system = unitSystemOf(this._config, this._hass);
+    const system = this._system();
     const unit = lengthFieldUnit(system);
 
     const addBtn = this._iconBtn("mdi:shape-rectangle-plus", "Add room", () => {
-      this._ensureFloorSize(floor);
-      const extent = floorExtent(floor) || { width: 10, depth: 8 };
+      const previous = floor.rooms[floor.rooms.length - 1];
       const room = normalizeRoom({
         name: `Room ${floor.rooms.length + 1}`,
-        at: [round2(extent.width * 0.1), round2(extent.depth * 0.1)],
-        size: [round2(extent.width * 0.3), round2(extent.depth * 0.3)],
+        size: [4, 4],
+        attach: previous ? { to: previous.id, wall: "east", door: true } : undefined,
       }, floor.rooms.length);
       floor.rooms.push(room);
       this._openRoom = room.id;
@@ -2539,30 +2889,36 @@ class HomeLayoutCardEditor extends HTMLElement {
     });
     const section = this._section(`Rooms on ${floor.name}`, addBtn);
 
-    const grid = document.createElement("div");
-    grid.className = "grid";
-    grid.appendChild(this._field(`Storey width (${unit})`, this._lengthInput(floor.width, system, (metres) => {
-      floor.width = metres;
-      this._emit(true);
-    }, { lazy: true })));
-    grid.appendChild(this._field(`Storey depth (${unit})`, this._lengthInput(floor.depth, system, (metres) => {
-      floor.depth = metres;
-      this._emit(true);
-    }, { lazy: true })));
-    section.appendChild(grid);
+    if (this._areaOptions().length) {
+      const bar = document.createElement("div");
+      bar.className = "row wrap";
+      bar.appendChild(this._button("mdi:import", "Add rooms from my HA areas", () => {
+        const added = this._importAreas(floor);
+        if (added) this._emit(true);
+      }));
+      section.appendChild(bar);
+    }
 
     const hint = document.createElement("div");
     hint.className = "hint";
-    hint.textContent = `Rooms are measured from the top-left corner of the storey, in ${unit === "ft" ? "feet" : "metres"}. Drag a room on the plan above to move it, or drag its bottom-right corner to resize. Sizes are stored in metres, so switching units re-labels the plan without resizing the house.`;
+    hint.textContent = `Give each room its real size, then say which room it joins and where the door goes \u2014 the plan is worked out from that. Drag a room on the preview to slide it round its neighbour, or drag its corner to resize. Sizes are in ${unit === "ft" ? "feet" : "metres"}.`;
     section.appendChild(hint);
 
     if (!floor.rooms.length) {
       const empty = document.createElement("div");
       empty.className = "empty-hint";
-      empty.textContent = "No rooms yet. Add one with +, then drag it into place on the plan above.";
+      empty.textContent = "No rooms yet. Add one with +, or import the areas you already have in Home Assistant.";
       section.appendChild(empty);
       return section;
     }
+
+    const layout = solveFloorLayout(floor);
+    layout.problems.forEach((problem) => {
+      const warn = document.createElement("div");
+      warn.className = "empty-hint";
+      warn.textContent = `\u26a0 ${problem}`;
+      section.appendChild(warn);
+    });
 
     floor.rooms.forEach((room, index) => {
       section.appendChild(this._renderRoomCard(room, index, floor, system, unit));
@@ -2589,11 +2945,15 @@ class HomeLayoutCardEditor extends HTMLElement {
     head.appendChild(title);
 
     const readout = document.createElement("span");
-    readout.className = "pos room-area-readout";
-    readout.textContent = formatArea(room.width * room.depth, system);
+    readout.className = "pos";
+    readout.textContent = `${formatLength(room.width, system)} \u00d7 ${formatLength(room.depth, system)} \u00b7 ${formatArea(room.width * room.depth, system)}`;
     head.appendChild(readout);
 
     head.appendChild(this._iconBtn("mdi:delete-outline", "Remove room", () => {
+      // Anything hanging off this room would dangle, so re-home it first.
+      floor.rooms.forEach((other) => {
+        if (other.attach && other.attach.to === room.id) other.attach = room.attach ? { ...room.attach } : null;
+      });
       floor.rooms.splice(index, 1);
       if (this._openRoom === room.id) this._openRoom = null;
       this._emit(true);
@@ -2603,33 +2963,46 @@ class HomeLayoutCardEditor extends HTMLElement {
     const body = document.createElement("div");
     body.className = "marker-body";
 
-    body.appendChild(this._field("Name", this._input("text", room.name, (v) => {
+    const top = document.createElement("div");
+    top.className = "grid";
+    top.appendChild(this._field("Name", this._input("text", room.name, (v) => {
       room.name = v;
       title.textContent = v || `Room ${index + 1}`;
-      this._syncPreviewRoom(room);
       this._emit();
-    }, { placeholder: "Kitchen" })));
+    }, { placeholder: "Living Room" })));
 
-    const grid = document.createElement("div");
-    grid.className = "grid";
-    [["Left", "x"], ["Top", "y"], ["Width", "width"], ["Depth", "depth"]].forEach(([text, key]) => {
-      const input = this._lengthInput(room[key], system, (metres) => {
+    const areas = this._areaOptions();
+    if (areas.length) {
+      top.appendChild(this._field("Home Assistant area", this._select(
+        [["", "Not linked"]].concat(areas),
+        room.area || "",
+        (v) => {
+          room.area = v;
+          if (v && !room.name) room.name = (this._hass.areas[v] || {}).name || "";
+          this._emit(true);
+        }
+      )));
+    }
+    body.appendChild(top);
+
+    const size = document.createElement("div");
+    size.className = "grid";
+    [["Width", "width"], ["Depth", "depth"]].forEach(([text, key]) => {
+      size.appendChild(this._field(`${text} (${unit})`, this._lengthInput(room[key], system, (metres) => {
         room[key] = metres;
-        if (key === "width" || key === "depth") room.area = room.width * room.depth;
-        readout.textContent = formatArea(room.width * room.depth, system);
-        this._syncPreviewRoom(room);
-        this._emit();
-      });
-      input.dataset.roomField = key;
-      grid.appendChild(this._field(`${text} (${unit})`, input));
+        room.floor_area = room.width * room.depth;
+        this._emit(true);
+      }, { lazy: true })));
     });
-    body.appendChild(grid);
+    body.appendChild(size);
+
+    body.appendChild(this._renderAttachControls(room, floor, system, unit));
 
     const colorRow = document.createElement("div");
     colorRow.className = "row";
     colorRow.appendChild(this._input("color", this._toHexColor(room.color), (v) => {
       room.color = v;
-      this._emit();
+      this._emit(true);
     }));
     colorRow.appendChild(this._input("text", room.color, (v) => {
       room.color = v;
@@ -2639,11 +3012,136 @@ class HomeLayoutCardEditor extends HTMLElement {
 
     body.appendChild(this._checkbox("Show label on the plan", room.label, (v) => {
       room.label = v;
-      this._emit();
+      this._emit(true);
     }));
+
+    body.appendChild(this._renderDeviceControls(room));
 
     card.appendChild(body);
     return card;
+  }
+
+  _renderAttachControls(room, floor, system, unit) {
+    const wrap = document.createElement("div");
+    const others = floor.rooms.filter((other) => other.id !== room.id);
+
+    const joinRow = document.createElement("div");
+    joinRow.className = "grid";
+    joinRow.appendChild(this._field("Joins", this._select(
+      [["", "Nothing \u2014 anchors the plan"]].concat(others.map((other) => [other.id, other.name])),
+      room.attach ? room.attach.to : "",
+      (v) => {
+        room.attach = v ? normalizeAttach({ to: v, wall: "east", door: true }) : null;
+        this._emit(true);
+      }
+    )));
+
+    if (!room.attach) {
+      wrap.appendChild(joinRow);
+      const note = document.createElement("div");
+      note.className = "hint";
+      note.textContent = "This room anchors the storey; everything else is positioned relative to it.";
+      wrap.appendChild(note);
+      return wrap;
+    }
+
+    joinRow.appendChild(this._field("On its", this._select(
+      [["north", "North wall (above)"], ["east", "East wall (right)"],
+       ["south", "South wall (below)"], ["west", "West wall (left)"]],
+      room.attach.wall,
+      (v) => { room.attach.wall = v; this._emit(true); }
+    )));
+    wrap.appendChild(joinRow);
+
+    const offsetRow = document.createElement("div");
+    offsetRow.className = "grid";
+    offsetRow.appendChild(this._field(`Offset along that wall (${unit})`, this._lengthInput(
+      room.attach.offset, system, (metres) => { room.attach.offset = metres; this._emit(true); }, { lazy: true }
+    )));
+    wrap.appendChild(offsetRow);
+
+    wrap.appendChild(this._checkbox("Door between them", Boolean(room.attach.door), (v) => {
+      room.attach.door = v ? { at: null, width: DEFAULT_DOOR_WIDTH } : null;
+      this._emit(true);
+    }));
+
+    if (room.attach.door) {
+      const doorRow = document.createElement("div");
+      doorRow.className = "grid";
+      doorRow.appendChild(this._field(`Door at (${unit}, blank = centred)`, this._lengthInput(
+        room.attach.door.at, system,
+        (metres) => { room.attach.door.at = metres; this._emit(true); },
+        { lazy: true }
+      )));
+      doorRow.appendChild(this._field(`Door width (${unit})`, this._lengthInput(
+        room.attach.door.width, system,
+        (metres) => { room.attach.door.width = metres || DEFAULT_DOOR_WIDTH; this._emit(true); },
+        { lazy: true }
+      )));
+      wrap.appendChild(doorRow);
+    }
+    return wrap;
+  }
+
+  _renderDeviceControls(room) {
+    const wrap = document.createElement("div");
+    const header = document.createElement("div");
+    header.className = "row";
+    header.style.marginTop = "10px";
+    const label = document.createElement("span");
+    label.className = "grow";
+    label.style.fontSize = "13px";
+    label.textContent = `Devices in ${room.name || "this room"}`;
+    header.appendChild(label);
+    header.appendChild(this._iconBtn("mdi:plus", "Add device", () => {
+      room.devices.push(normalizeDevice({ entity: "" }, room.devices.length));
+      this._emit(true);
+    }));
+    wrap.appendChild(header);
+
+    const suggestions = room.area ? this._entitiesInArea(room.area) : [];
+    const present = new Set(room.devices.map((device) => device.entity));
+    const missing = suggestions.filter((id) => !present.has(id));
+    if (missing.length) {
+      const bar = document.createElement("div");
+      bar.className = "row wrap";
+      bar.appendChild(this._button("mdi:import", `Add all ${missing.length} from this area`, () => {
+        missing.forEach((id) => room.devices.push(normalizeDevice({ entity: id }, room.devices.length)));
+        this._emit(true);
+      }));
+      wrap.appendChild(bar);
+    }
+
+    room.devices.forEach((device, i) => {
+      const row = document.createElement("div");
+      row.className = "row";
+      const picker = this._entityControl(device.entity, (v) => {
+        device.entity = v;
+        this._emit(true);
+      });
+      picker.style.flex = "1";
+      row.appendChild(picker);
+      row.appendChild(this._iconBtn("mdi:crosshairs-gps", device.x === null ? "Positioned automatically" : "Reset to automatic position", () => {
+        device.x = null;
+        device.y = null;
+        this._emit(true);
+      }, device.x === null));
+      row.appendChild(this._iconBtn("mdi:delete-outline", "Remove device", () => {
+        room.devices.splice(i, 1);
+        this._emit(true);
+      }));
+      wrap.appendChild(row);
+    });
+
+    if (!room.devices.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty-hint";
+      empty.textContent = room.area
+        ? "No devices placed yet."
+        : "No devices yet. Link this room to a Home Assistant area to pick from its entities.";
+      wrap.appendChild(empty);
+    }
+    return wrap;
   }
 
   _renderMarkersSection() {

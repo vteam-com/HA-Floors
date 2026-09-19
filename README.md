@@ -299,36 +299,95 @@ under a ground floor at `0`. Set an explicit `id` on every storey you reference 
 
 ### Rooms
 
-Rooms are drawn to scale from real measurements and labelled with their dimensions and
-area. They work with a floorplan image behind them, or entirely on their own — a storey
-with rooms but no `image` still renders, taking its proportions from the room geometry.
+A room is described the way people actually describe a house: how big it is, which
+room it joins, and where the door is. The card works out the coordinates — you never
+type an x/y position.
 
 ```yaml
 type: custom:home-layout-card
 title: Home
 floors:
-  - name: Ground
-    size: [12.5, 9]            # the whole storey, width × depth
+  - id: ground
+    name: Ground
     rooms:
-      - name: Kitchen
-        at: [0, 0]             # from the top-left corner of the storey
-        size: [4.2, 3.6]
-      - name: Living room
-        at: [4.2, 0]
-        size: [5.5, 4.8]
-        color: "#4caf50"
+      - id: living              # no `attach`, so this room anchors the storey
+        name: Living Room
+        area: living_room       # optional link to a Home Assistant area
+        size: [10, 12]
+        devices:
+          - light.living_room_lamp
+
+      - id: kitchen
+        name: Kitchen
+        size: [9, 9]
+        attach:
+          to: living
+          wall: east            # north | east | south | west
+          door:
+            at: 5               # metres along the shared wall
 ```
+
+That reads as "the kitchen is 9 × 9, on the east side of the living room, with a door
+five metres along the wall they share" — and that is exactly what it draws.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
+| `id` | string | generated | Stable identifier, referenced by `attach.to` |
 | `name` | string | `Room n` | Shown on the plan |
-| `at` | pair | `[0, 0]` | Position from the storey's top-left corner |
-| `x`, `y` | length | `0` | Longhand for `at` |
-| `size` | pair | — | Width × depth |
+| `size` | pair | — | Width × depth, e.g. `[10, 12]` |
 | `width`, `depth` | length | `0` | Longhand for `size` |
-| `area` | number | computed | Override for rooms that are not rectangles (m²) |
+| `area` | string | — | Home Assistant area id; see [Areas and devices](#areas-and-devices) |
+| `attach` | map | — | Which room this one joins; omit to anchor the storey |
+| `devices` | list | `[]` | Entities placed inside this room |
+| `floor_area` | number | computed | Override in m², for rooms that are not rectangles |
 | `color` | string | theme | Tint for the room's outline and fill |
 | `label` | bool | `true` | Draw this room's label |
+| `x`, `y` | length | `0` | Position, **only** used when the room anchors the plan |
+
+#### Joining rooms
+
+| `attach` option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `to` | string | **required** | `id` of the room this one joins |
+| `wall` | string | `east` | Which wall **of that room** to sit against |
+| `offset` | length | `0` | How far along that wall, from its top or left corner |
+| `door` | bool / length / map | — | `true` centres a door; a number places it; a map takes `at` and `width` |
+
+Every storey needs exactly one room with no `attach` — that one anchors the plan, and
+everything else is positioned relative to it, directly or through a chain. Attaching
+westwards or northwards produces negative coordinates internally; the card slides the
+whole plan back to the origin, so you never have to think about it.
+
+Mistakes are reported in the browser console and drawn as best they can be, rather than
+breaking the card: a loop (`a` joins `b` joins `a`) anchors one of the rooms, a reference
+to a deleted room anchors the orphan, and a door between rooms whose walls do not actually
+touch is skipped.
+
+#### Areas and devices
+
+Linking a room to a Home Assistant area with `area:` does two things: the editor offers
+that area's entities when you add devices, with an **Add all n from this area** shortcut,
+and **Add rooms from my HA areas** creates a room per area you already have. Neither is
+required — rooms work fine with no areas set up at all.
+
+Devices are entities placed inside a room:
+
+```yaml
+devices:
+  - light.kitchen_ceiling        # shorthand
+  - entity: media_player.tv
+    x: 50                        # optional, % across the room
+    y: 8                         # optional, % down the room
+```
+
+A device with no `x`/`y` is spread over a grid inside its room, so dropping an entity in
+is useful immediately. Give it a position — or drag it in the editor — to pin it to a
+spot. Positions are relative to the room, so they survive the room being moved, resized,
+or re-joined to a different neighbour.
+
+Devices support every [marker option](#marker-options) (`icon`, `style`, `tap_action` and
+so on); only `x` and `y` change meaning, from a percentage of the image to a percentage of
+the room.
 
 #### Units
 
@@ -358,26 +417,28 @@ size: [420cm, 360cm]
 `auto` reads Home Assistant's own unit system (**Settings → System → General → Unit
 system**), so the card matches the rest of your dashboard without being told twice.
 
-Marker states are unaffected by this setting — they are formatted by Home Assistant
+Device states are unaffected by this setting — they are formatted by Home Assistant
 itself, so a temperature already shows °C or °F according to your profile.
 
-#### Editing rooms visually
+#### Building a plan in the editor
 
-The card editor has a **Rooms** panel for the selected storey:
+No YAML required. In the card editor, each storey gets a **Rooms** panel:
 
-- **+** adds a room, which appears on the plan preview
-- **drag a room** to move it; **drag its bottom-right corner** to resize
-- the numeric fields update live while you drag, and vice versa
-- fields are labelled in your display unit (`m` or `ft`) and converted on the way in
+1. **Add rooms from my HA areas**, or **+** for a blank room
+2. Give it a width and depth
+3. Pick which room it **joins**, which **wall**, and whether there is a **door**
+4. **Drag a room** on the preview to slide it round its neighbour — it stays attached,
+   and switches walls when you drag it past a corner
+5. **Drag its bottom-right corner** to resize
+6. Add **devices**, then drag them where they belong inside the room
 
-Set the storey's width and depth first. Everything else is measured inside it, and a
-storey with a fixed size keeps the plan stable while you drag rooms around.
+Dragging never degrades the plan into loose coordinates: a drag updates the room's `wall`
+and `offset`, so the description stays readable and the next room you add still lines up.
 
 > **Using rooms over a floorplan image?** Rooms are positioned as a fraction of the
-> storey's `size`, while the canvas takes its shape from the image. Give the storey the
-> same proportions as the drawing (a 12.5 × 9 m storey wants a roughly 10:7 image) or the
-> rooms will not line up with the walls. With no image, the storey's own proportions are
-> used and the two always agree.
+> storey's extent, while the canvas takes its shape from the image. Give the storey a
+> `size` matching the drawing's proportions, or the rooms will not line up with the walls.
+> With no image, the storey's own proportions are used and the two always agree.
 
 ### Marker options
 
