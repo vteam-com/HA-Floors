@@ -6,7 +6,7 @@
  * https://github.com/YOUR_USERNAME/home-layout-card
  */
 
-const HLC_VERSION = "1.2.3";
+const HLC_VERSION = "1.2.4";
 
 /* ------------------------------------------------------------------ *
  * Small helpers
@@ -2142,7 +2142,11 @@ class HomeLayoutCardEditor extends HTMLElement {
   /* ---------------- config plumbing ---------------- */
 
   _emit(rerender) {
-    const out = { ...this._config, type: "custom:home-layout-card" };
+    // Deep copy, not a spread. The editor mutates its own config in place, so
+    // anything handed out by reference keeps changing under Home Assistant --
+    // it would then see no difference on the next edit and ignore it, and only
+    // the first change of a session would ever stick.
+    const out = JSON.parse(JSON.stringify({ ...this._config, type: "custom:home-layout-card" }));
     this._lastEmitted = JSON.stringify(out);
     fireEvent(this, "config-changed", { config: out });
     if (rerender) this._render();
