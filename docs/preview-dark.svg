@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 572" width="720" height="572" role="img" aria-label="Home Layout Card showing a ground floor plan with live markers (dark theme)">
+  <title>Home Layout Card showing a ground floor plan with live markers (dark theme)</title>
+  <desc>A Home Layout Card showing the ground floor of a house: floor tabs across the top, a floorplan below, and live entity markers placed on the rooms. The living room and kitchen lights are on, so those rooms are tinted.</desc>
+  <style>
+    text { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .card { fill: #1c1c1c; stroke: #2f2f2f; stroke-width: 1; }
+    .title { font-size: 22px; font-weight: 400; fill: #e1e1e1; }
+    .toolbg { fill: transparent; }
+    .ic-tool { fill: #9b9b9b; }
+    .tab { font-size: 14px; font-weight: 500; fill: #9b9b9b; text-anchor: middle; }
+    .tab.active { fill: #03a9f4; }
+    .tabline { fill: #03a9f4; }
+    .divider { stroke: rgba(255,255,255,.14); stroke-width: 1; }
+
+    .room { fill: #2b3136; stroke: #78909c; stroke-width: 4; stroke-linejoin: round; }
+    .lit { fill: #fdd835; opacity: .45; }
+    .door { stroke: #2b3136; stroke-width: 6; stroke-linecap: round; }
+    .outer { fill: none; stroke: #90a4ae; stroke-width: 8; stroke-linejoin: round; }
+    .rlabel { font-size: 15px; font-weight: 500; fill: #b0bec5;
+               text-anchor: middle; dominant-baseline: middle; }
+
+    .puck.off { fill: #1c1c1c; stroke: rgba(255,255,255,.14); stroke-width: 1; }
+    .puck.on { fill: #fdd835; stroke: none; }
+    .glow { fill: #fdd835; opacity: .28; }
+    .dot-ring { fill: #1c1c1c; }
+    .ic-off { fill: #9b9b9b; }
+    .ic-on { fill: #1c1c1c; }
+    .badge-tx { font-size: 12px; font-weight: 500; }
+    .badge-tx.off { fill: #e1e1e1; }
+    .badge-tx.on { fill: #1c1c1c; }
+    .cap-bg { fill: #2c2c2c; stroke: rgba(255,255,255,.14); stroke-width: 1; }
+    .cap-tx { font-size: 11px; font-weight: 500; fill: #e1e1e1; text-anchor: middle; }
+  </style>
+  <rect class="card" x="0.5" y="0.5" width="719" height="571" rx="12"/><text class="title" x="20" y="42">Our House</text><circle class="toolbg" cx="656" cy="34" r="17"/><g transform="translate(645.00,23.00) scale(0.9167)"><path class="ic-tool" d="M12,16L19.36,10.27L21,9L12,2L3,9L4.63,10.27M12,18.54L4.62,12.81L3,14.07L12,21.07L21,14.07L19.37,12.8L12,18.54Z"/></g><circle class="toolbg" cx="692" cy="34" r="17"/><g transform="translate(681.00,23.00) scale(0.9167)"><path class="ic-tool" d="M5,5H10V7H7V10H5V5M14,5H19V10H17V7H14V5M17,14H19V19H14V17H17V14M10,17V19H5V14H7V17H10Z"/></g><text class="tab " x="44.0" y="79">Loft</text><text class="tab " x="119.0" y="79">First Floor</text><text class="tab active" x="223.0" y="79">Ground Floor</text><rect class="tabline" x="166" y="90" width="114" height="2" rx="1"/><line class="divider" x1="16" y1="91" x2="704" y2="91"/>
+  <g transform="translate(16,104) scale(0.86)"><rect class="outer" x="16" y="16" width="768" height="488" rx="6"/><rect class="room" x="20" y="20" width="360" height="280"/><rect class="room" x="20" y="300" width="360" height="200"/><rect class="room" x="380" y="20" width="120" height="480"/><rect class="room" x="500" y="20" width="280" height="220"/><rect class="room" x="500" y="240" width="280" height="140"/><rect class="room" x="500" y="380" width="140" height="120"/><rect class="room" x="640" y="380" width="140" height="120"/><rect class="lit" x="20" y="20" width="360" height="280"/><rect class="lit" x="500" y="20" width="280" height="220"/><line class="door" x1="380" y1="120" x2="380" y2="180"/><line class="door" x1="380" y1="360" x2="380" y2="420"/><line class="door" x1="500" y1="90" x2="500" y2="150"/><line class="door" x1="500" y1="290" x2="500" y2="340"/><line class="door" x1="500" y1="420" x2="500" y2="470"/><line class="door" x1="640" y1="430" x2="640" y2="470"/><line class="door" x1="200" y1="300" x2="260" y2="300"/><text class="rlabel" x="200" y="160">Living Room</text><text class="rlabel" x="200" y="400">Study</text><text class="rlabel" x="440" y="260">Hall</text><text class="rlabel" x="640" y="130">Kitchen</text><text class="rlabel" x="640" y="310">Dining</text><text class="rlabel" x="570" y="440">WC</text><text class="rlabel" x="710" y="440">Utility</text></g>
+  <circle class="glow" cx="119.20" cy="185.70" r="19"/><circle class="puck on" cx="119.20" cy="185.70" r="17"/><g transform="translate(109.20,175.70) scale(0.8333)"><path class="ic-on" d="M12,2A7,7 0 0,0 5,9C5,11.38 6.19,13.47 8,14.74V17A1,1 0 0,0 9,18H15A1,1 0 0,0 16,17V14.74C17.81,13.47 19,11.38 19,9A7,7 0 0,0 12,2M9,21A1,1 0 0,0 10,22H14A1,1 0 0,0 15,21V20H9V21Z"/></g><g><rect class="cap-bg" x="105.71" y="209.70" width="26.98" height="18" rx="9"/><text class="cap-tx" x="119.20" y="222.50">On</text></g><g><rect class="puck on" x="240.16" y="167.68" width="76.28" height="24" rx="12"/><g transform="translate(247.16,172.68) scale(0.5833)"><path class="ic-on" d="M8,5.14V19.14L19,12.14L8,5.14Z"/></g><text class="badge-tx on" x="266.16" y="183.88">Playing</text></g><g><rect class="puck off" x="162.56" y="296.68" width="59.48" height="24" rx="12"/><g transform="translate(169.56,301.68) scale(0.5833)"><path class="ic-off" d="M15 13V5A3 3 0 0 0 9 5V13A5 5 0 1 0 15 13M12 4A1 1 0 0 1 13 5V8H11V5A1 1 0 0 1 12 4Z"/></g><text class="badge-tx off" x="188.56" y="312.88">21.4°</text></g><circle class="dot-ring" cx="394.40" cy="198.60" r="10.14"/><circle class="puck on" cx="394.40" cy="198.60" r="7.14"/><g><rect class="cap-bg" x="365.51" y="213.74" width="57.78" height="18" rx="9"/><text class="cap-tx" x="394.40" y="226.54">Detected</text></g><circle class="glow" cx="394.40" cy="472.08" r="19"/><circle class="puck on" cx="394.40" cy="472.08" r="17"/><g transform="translate(384.40,462.08) scale(0.8333)"><path class="ic-on" d="M12,17A2,2 0 0,0 14,15C14,13.89 13.1,13 12,13A2,2 0 0,0 10,15A2,2 0 0,0 12,17M18,8A2,2 0 0,1 20,10V20A2,2 0 0,1 18,22H6A2,2 0 0,1 4,20V10C4,8.89 4.9,8 6,8H7V6A5,5 0 0,1 12,1A5,5 0 0,1 17,6V8H18M12,3A3,3 0 0,0 9,6V8H15V6A3,3 0 0,0 12,3Z"/></g><g><rect class="cap-bg" x="369.03" y="496.08" width="50.74" height="18" rx="9"/><text class="cap-tx" x="394.40" y="508.88">Locked</text></g><circle class="puck off" cx="110.60" cy="492.72" r="17"/><g transform="translate(100.60,482.72) scale(0.8333)"><path class="ic-off" d="M12,2A7,7 0 0,0 5,9C5,11.38 6.19,13.47 8,14.74V17A1,1 0 0,0 9,18H15A1,1 0 0,0 16,17V14.74C17.81,13.47 19,11.38 19,9A7,7 0 0,0 12,2M9,21A1,1 0 0,0 10,22H14A1,1 0 0,0 15,21V20H9V21Z"/></g><g><rect class="cap-bg" x="96.56" y="516.72" width="28.08" height="18" rx="9"/><text class="cap-tx" x="110.60" y="529.52">Off</text></g><circle class="glow" cx="506.20" cy="164.20" r="19"/><circle class="puck on" cx="506.20" cy="164.20" r="17"/><g transform="translate(496.20,154.20) scale(0.8333)"><path class="ic-on" d="M12,2A7,7 0 0,0 5,9C5,11.38 6.19,13.47 8,14.74V17A1,1 0 0,0 9,18H15A1,1 0 0,0 16,17V14.74C17.81,13.47 19,11.38 19,9A7,7 0 0,0 12,2M9,21A1,1 0 0,0 10,22H14A1,1 0 0,0 15,21V20H9V21Z"/></g><g><rect class="cap-bg" x="492.71" y="188.20" width="26.98" height="18" rx="9"/><text class="cap-tx" x="506.20" y="201.00">On</text></g><g><rect class="puck off" x="588.26" y="248.52" width="59.48" height="24" rx="12"/><g transform="translate(595.26,253.52) scale(0.5833)"><path class="ic-off" d="M15 13V5A3 3 0 0 0 9 5V13A5 5 0 1 0 15 13M12 4A1 1 0 0 1 13 5V8H11V5A1 1 0 0 1 12 4Z"/></g><text class="badge-tx off" x="614.26" y="264.72">23.1°</text></g>
+</svg>

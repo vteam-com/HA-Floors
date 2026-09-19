@@ -1,0 +1,61 @@
+# Rooms drawn to scale from real measurements, with no floorplan image at all.
+# The card takes the plan's proportions from `size` and labels every room with
+# its dimensions and area, in whichever units Home Assistant is set to.
+type: custom:home-layout-card
+title: Home
+units: auto            # auto | metric | imperial
+floors:
+  - id: ground
+    name: Ground
+    level: 0
+    size: [12.5, 9]    # metres; suffixes such as 41ft are accepted too
+    rooms:
+      - name: Kitchen
+        at: [0, 0]
+        size: [4.2, 3.6]
+      - name: Living room
+        at: [4.2, 0]
+        size: [5.5, 4.8]
+      - name: Hall
+        at: [9.7, 0]
+        size: [2.8, 9]
+        color: "#90a4ae"
+      - name: Dining
+        at: [0, 3.6]
+        size: [4.2, 5.4]
+      - name: Study
+        at: [4.2, 4.8]
+        size: [5.5, 4.2]
+    markers:
+      - entity: light.kitchen
+        x: 17
+        y: 20
+      - entity: light.living_room
+        x: 55
+        y: 27
+
+  - id: first
+    name: First
+    level: 1
+    size: [12.5, 9]
+    rooms:
+      - name: Main bedroom
+        at: [0, 0]
+        size: [5, 4.5]
+      - name: Bedroom 2
+        at: [5, 0]
+        size: [4.7, 4.5]
+      - name: Landing
+        at: [9.7, 0]
+        size: [2.8, 9]
+        color: "#90a4ae"
+      - name: Bathroom
+        at: [0, 4.5]
+        size: [3.2, 4.5]
+      - name: Bedroom 3
+        at: [3.2, 4.5]
+        size: [6.5, 4.5]
+    markers:
+      - entity: climate.upstairs
+        x: 20
+        y: 25
