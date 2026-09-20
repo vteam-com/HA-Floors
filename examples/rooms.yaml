@@ -28,6 +28,8 @@ floors:
         name: Kitchen
         area: kitchen
         size: [9, 9]
+        color: "#26a69a"   # any CSS colour, or var(--accent-color)
+        fill: 30           # how strongly it fills, per cent (default 8)
         attach:
           to: living
           wall: east         # north | east | south | west

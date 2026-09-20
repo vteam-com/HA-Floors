@@ -6,7 +6,7 @@
  * https://github.com/YOUR_USERNAME/home-layout-card
  */
 
-const HLC_VERSION = "1.3.1";
+const HLC_VERSION = "1.4.0";
 
 /* ------------------------------------------------------------------ *
  * Small helpers
@@ -522,6 +522,21 @@ const normalizeAttach = (raw) => {
   };
 };
 
+/**
+ * How strongly a room's tint fills it, as a percentage. `null` means "leave it
+ * to the card default", which keeps an untinted plan looking as it always has.
+ */
+const ROOM_FILL_DEFAULT = 8;
+
+const normalizeFill = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const pct = Number(value);
+  if (!Number.isFinite(pct)) return null;
+  // A fraction is the other natural way to write this, and anything under 1%
+  // would render as nothing anyway, so read 0.4 as 40%.
+  return clamp(Math.round(pct > 0 && pct < 1 ? pct * 100 : pct), 0, 100);
+};
+
 const normalizeRoom = (raw, index) => {
   const room = { ...(raw || {}) };
   const at = parsePair(room.at !== undefined ? room.at : [room.x, room.y]);
@@ -545,6 +560,7 @@ const normalizeRoom = (raw, index) => {
     attach: normalizeAttach(room.attach),
     devices: (room.devices || []).map(normalizeDevice),
     color: room.color || "",
+    fill: normalizeFill(room.fill),
     label: room.label === undefined ? true : Boolean(room.label),
   };
 };
@@ -933,7 +949,7 @@ const CARD_STYLES = `
     position: absolute;
     box-sizing: border-box;
     border: 1px solid var(--hlc-room-color, var(--hlc-divider));
-    background: color-mix(in srgb, var(--hlc-room-color, var(--hlc-accent)) 8%, transparent);
+    background: color-mix(in srgb, var(--hlc-room-color, var(--hlc-accent)) var(--hlc-room-fill, 8%), transparent);
     border-radius: 3px;
     display: flex;
     align-items: center;
@@ -1375,6 +1391,7 @@ class HomeLayoutCard extends HTMLElement {
       el.style.width = `${(box.width / extent.width) * 100}%`;
       el.style.height = `${(box.depth / extent.depth) * 100}%`;
       if (room.color) el.style.setProperty("--hlc-room-color", room.color);
+      if (room.fill !== null) el.style.setProperty("--hlc-room-fill", `${room.fill}%`);
       if (room.label) {
         const label = this._roomLabel(room);
         if (label) el.appendChild(label);
@@ -2105,11 +2122,37 @@ const EDITOR_STYLES = `
   .hint { font-size: 12px; color: var(--secondary-text-color); margin: 6px 2px 0; line-height: 1.45; }
   .empty-hint { font-size: 13px; color: var(--secondary-text-color); padding: 8px 2px; }
   ha-entity-picker, ha-icon-picker { display: block; width: 100%; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
+  .swatch {
+    width: 26px; height: 26px; padding: 0; border-radius: 50%;
+    border: 2px solid transparent;
+    box-shadow: inset 0 0 0 1px var(--divider-color, rgba(0,0,0,.25));
+    background-clip: padding-box;
+    cursor: pointer;
+  }
+  .swatch:hover { box-shadow: inset 0 0 0 1px var(--primary-text-color); }
+  .swatch[aria-pressed="true"] { border-color: var(--primary-text-color); }
+  .swatch.none {
+    background: var(--card-background-color, #fff);
+    color: var(--secondary-text-color);
+    display: inline-flex; align-items: center; justify-content: center;
+    --mdc-icon-size: 16px;
+  }
+  .tint-chip {
+    width: 12px; height: 12px; border-radius: 3px; flex: none;
+    border: 1px solid var(--divider-color, rgba(0,0,0,.25));
+  }
+  .fill-row { display: flex; align-items: center; gap: 8px; }
+  .fill-row input[type="range"] { flex: 1; width: auto; min-width: 0; padding: 0; accent-color: var(--accent-color, #03a9f4); }
+  .fill-row .val {
+    font-size: 12px; color: var(--secondary-text-color);
+    font-variant-numeric: tabular-nums; min-width: 34px; text-align: right;
+  }
   .room-box {
     position: absolute;
     box-sizing: border-box;
-    border: 1px solid var(--accent-color, #03a9f4);
-    background: color-mix(in srgb, var(--accent-color, #03a9f4) 12%, transparent);
+    border: 1px solid var(--room-tint, var(--accent-color, #03a9f4));
+    background: color-mix(in srgb, var(--room-tint, var(--accent-color, #03a9f4)) var(--room-fill, 12%), transparent);
     border-radius: 3px;
     cursor: grab;
     display: flex;
@@ -2120,7 +2163,7 @@ const EDITOR_STYLES = `
   }
   .room-box[data-selected="true"] {
     border-width: 2px;
-    background: color-mix(in srgb, var(--accent-color, #03a9f4) 26%, transparent);
+    background: color-mix(in srgb, var(--room-tint, var(--accent-color, #03a9f4)) calc(var(--room-fill, 12%) + 14%), transparent);
   }
   .room-box.dragging { cursor: grabbing; }
   /* While placing a marker the rooms would otherwise eat the click. */
@@ -2184,6 +2227,24 @@ const MARKER_STYLES = [
   ["label", "Text label"],
   ["dot", "Small dot"],
   ["area", "Room area (highlight)"],
+];
+
+/**
+ * A tint has to read as a room on a plan, not as a highlight, so these are
+ * mid-tones that survive being mixed down to a few percent against either a
+ * light or a dark card background.
+ */
+const ROOM_COLORS = [
+  ["#ef5350", "Red"],
+  ["#ff7043", "Orange"],
+  ["#ffca28", "Amber"],
+  ["#9ccc65", "Green"],
+  ["#26a69a", "Teal"],
+  ["#29b6f6", "Blue"],
+  ["#5c6bc0", "Indigo"],
+  ["#ab47bc", "Purple"],
+  ["#8d6e63", "Brown"],
+  ["#78909c", "Slate"],
 ];
 
 const TAP_ACTIONS = [
@@ -2856,6 +2917,8 @@ class HomeLayoutCardEditor extends HTMLElement {
     el.style.top = `${(box.y / extent.depth) * 100}%`;
     el.style.width = `${(box.width / extent.width) * 100}%`;
     el.style.height = `${(box.depth / extent.depth) * 100}%`;
+    if (room.color) el.style.setProperty("--room-tint", room.color);
+    if (room.fill !== null) el.style.setProperty("--room-fill", `${room.fill}%`);
 
     const label = document.createElement("span");
     label.className = "room-box-label";
@@ -3116,6 +3179,13 @@ class HomeLayoutCardEditor extends HTMLElement {
       this._render();
     });
 
+    const chip = document.createElement("span");
+    chip.className = "tint-chip";
+    chip.dataset.chip = "tint";
+    chip.style.background = room.color || "var(--accent-color, #03a9f4)";
+    chip.style.opacity = room.color ? "1" : ".35";
+    head.appendChild(chip);
+
     const title = document.createElement("span");
     title.className = "grow";
     title.textContent = room.name || `Room ${index + 1}`;
@@ -3175,17 +3245,7 @@ class HomeLayoutCardEditor extends HTMLElement {
 
     body.appendChild(this._renderAttachControls(room, floor, system, unit));
 
-    const colorRow = document.createElement("div");
-    colorRow.className = "row";
-    colorRow.appendChild(this._input("color", this._toHexColor(room.color), (v) => {
-      room.color = v;
-      this._emit(true);
-    }));
-    colorRow.appendChild(this._input("text", room.color, (v) => {
-      room.color = v;
-      this._emit();
-    }, { placeholder: "var(--accent-color)" }));
-    body.appendChild(this._field("Tint", colorRow));
+    body.appendChild(this._renderRoomColor(room));
 
     body.appendChild(this._checkbox("Show label on the plan", room.label, (v) => {
       room.label = v;
@@ -3196,6 +3256,116 @@ class HomeLayoutCardEditor extends HTMLElement {
 
     card.appendChild(body);
     return card;
+  }
+
+  /**
+   * The room's own color: a palette for the quick choice, a picker and a free
+   * text field for anything else (a hex value, `rgb()`, or a theme variable),
+   * and how strongly that colour fills the room on the plan.
+   */
+  _renderRoomColor(room) {
+    const wrap = document.createElement("div");
+    wrap.style.marginTop = "10px";
+
+    const heading = document.createElement("span");
+    heading.style.fontSize = "13px";
+    heading.textContent = "Colour on the plan";
+    wrap.appendChild(heading);
+
+    const swatches = document.createElement("div");
+    swatches.className = "swatches";
+
+    const swatch = (value, name, pressed) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = value ? "swatch" : "swatch none";
+      btn.title = name;
+      btn.setAttribute("aria-label", name);
+      btn.setAttribute("aria-pressed", String(pressed));
+      if (value) {
+        btn.style.background = value;
+      } else {
+        const icon = document.createElement("ha-icon");
+        icon.setAttribute("icon", "mdi:palette-outline");
+        btn.appendChild(icon);
+      }
+      btn.addEventListener("click", () => {
+        room.color = value;
+        this._emit(true);
+      });
+      return btn;
+    };
+
+    const current = String(room.color || "").trim().toLowerCase();
+    swatches.appendChild(swatch("", "Theme default", !current));
+    ROOM_COLORS.forEach(([value, name]) => {
+      swatches.appendChild(swatch(value, name, current === value));
+    });
+    wrap.appendChild(swatches);
+
+    const customRow = document.createElement("div");
+    customRow.className = "row";
+    customRow.appendChild(this._input("color", this._toHexColor(room.color), (v) => {
+      room.color = v;
+      this._emit(true);
+    }));
+    const text = this._input("text", room.color, (v) => {
+      room.color = v.trim();
+      this._repaintRoomTint(room);
+      this._emit();
+    }, { placeholder: "Theme default \u2014 or #4caf50, var(--accent-color)" });
+    text.className = "grow";
+    customRow.appendChild(text);
+    wrap.appendChild(this._field("Custom colour", customRow));
+
+    const fillRow = document.createElement("div");
+    fillRow.className = "fill-row";
+    const range = document.createElement("input");
+    range.type = "range";
+    range.min = "0";
+    range.max = "100";
+    range.step = "1";
+    range.value = String(room.fill === null ? ROOM_FILL_DEFAULT : room.fill);
+    const readout = document.createElement("span");
+    readout.className = "val";
+    readout.textContent = `${range.value}%`;
+    // Dragging repaints in place: a re-render would destroy the slider holding
+    // the pointer, so the config only goes out once the value settles.
+    range.addEventListener("input", () => {
+      room.fill = Number(range.value);
+      readout.textContent = `${room.fill}%`;
+      this._repaintRoomTint(room);
+    });
+    range.addEventListener("change", () => {
+      room.fill = Number(range.value);
+      this._emit();
+    });
+    fillRow.appendChild(range);
+    fillRow.appendChild(readout);
+    fillRow.appendChild(this._iconBtn("mdi:restore", "Back to the default fill", () => {
+      room.fill = null;
+      this._emit(true);
+    }, room.fill === null));
+    wrap.appendChild(this._field("Fill strength", fillRow));
+
+    return wrap;
+  }
+
+  /** Push a room's tint into the preview and its card header, without a re-render. */
+  _repaintRoomTint(room) {
+    if (!this.shadowRoot) return;
+    const box = this.shadowRoot.querySelector(`.room-box[data-room="${room.id}"]`);
+    if (box) {
+      if (room.color) box.style.setProperty("--room-tint", room.color);
+      else box.style.removeProperty("--room-tint");
+      if (room.fill === null) box.style.removeProperty("--room-fill");
+      else box.style.setProperty("--room-fill", `${room.fill}%`);
+    }
+    const chip = this.shadowRoot.querySelector(`.room-card[data-room="${room.id}"] [data-chip="tint"]`);
+    if (chip) {
+      chip.style.background = room.color || "var(--accent-color, #03a9f4)";
+      chip.style.opacity = room.color ? "1" : ".35";
+    }
   }
 
   _renderAttachControls(room, floor, system, unit) {

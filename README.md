@@ -340,7 +340,8 @@ five metres along the wall they share" — and that is exactly what it draws.
 | `attach` | map | — | Which room this one joins; omit to anchor the storey |
 | `devices` | list | `[]` | Entities placed inside this room |
 | `floor_area` | number | computed | Override in m², for rooms that are not rectangles |
-| `color` | string | theme | Tint for the room's outline and fill |
+| `color` | string | theme | Colour for the room's outline and fill |
+| `fill` | number | `8` | How strongly that colour fills the room, 0–100% |
 | `label` | bool | `true` | Draw this room's label |
 | `x`, `y` | length | `0` | Position, **only** used when the room anchors the plan |
 
@@ -430,10 +431,34 @@ No YAML required. In the card editor, each storey gets a **Rooms** panel:
 4. **Drag a room** on the preview to slide it round its neighbour — it stays attached,
    and switches walls when you drag it past a corner
 5. **Drag its bottom-right corner** to resize
-6. Add **devices**, then drag them where they belong inside the room
+6. Give it a **colour** — pick one from the palette, or set any CSS colour of your own
+7. Add **devices**, then drag them where they belong inside the room
 
 Dragging never degrades the plan into loose coordinates: a drag updates the room's `wall`
 and `offset`, so the description stays readable and the next room you add still lines up.
+
+#### Colouring a room
+
+Every room can carry its own colour, which draws its outline and washes through its
+fill. In the editor, open a room and use the **Colour on the plan** controls: ten preset
+tones, a colour picker, a free text field for anything CSS understands — `#4caf50`,
+`rgb(76 175 80)` or a theme variable such as `var(--accent-color)` — and a **fill
+strength** slider from a barely-there wash to a solid block of colour. The leftmost
+swatch puts the room back to the theme default.
+
+```yaml
+rooms:
+  - id: kitchen
+    name: Kitchen
+    size: [9, 9]
+    color: "#26a69a"     # any CSS colour, or var(--accent-color)
+    fill: 30             # per cent; omit for the default 8
+```
+
+Colour is a property of the room itself, so it stays put as the plan is rearranged, and
+it applies whether or not the storey has a floorplan image behind it. To colour a room
+*by entity state* instead, use [`svg_bindings`](#room-highlights-svg_bindings) on an inline
+SVG, or an `area` marker.
 
 > **Using rooms over a floorplan image?** Rooms are positioned as a fraction of the
 > storey's extent, while the canvas takes its shape from the image. Give the storey a
